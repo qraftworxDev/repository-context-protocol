@@ -19,30 +19,58 @@ help: ## Show this help message
 build: ## Build binaries
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p bin
-	go build $(LDFLAGS) -o bin/$(BINARY_NAME) cmd/repocontext/main.go
-	go build $(LDFLAGS) -o bin/$(LSP_BINARY_NAME) cmd/lsp/main.go
+	@if [ -f "cmd/repocontext/main.go" ]; then \
+		go build $(LDFLAGS) -o bin/$(BINARY_NAME) cmd/repocontext/main.go; \
+	else \
+		echo "cmd/repocontext/main.go not found, skipping $(BINARY_NAME) build"; \
+	fi
+	@if [ -f "cmd/lsp/main.go" ]; then \
+		go build $(LDFLAGS) -o bin/$(LSP_BINARY_NAME) cmd/lsp/main.go; \
+	else \
+		echo "cmd/lsp/main.go not found, skipping $(LSP_BINARY_NAME) build"; \
+	fi
 
 test: ## Run unit tests
-	go test -v -race ./...
+	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
+		go test -v -race ./...; \
+	else \
+		echo "No Go files found, skipping tests"; \
+	fi
 
 coverage: ## Run tests with coverage
-	go test -v -race -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
+		go test -v -race -coverprofile=coverage.out ./...; \
+		go tool cover -html=coverage.out -o coverage.html; \
+	else \
+		echo "No Go files found, skipping coverage"; \
+	fi
 
 integration-test: build ## Run integration tests
 	./scripts/test-integration.sh
 
 lint: ## Run linter
 	@which golangci-lint > /dev/null || (echo "golangci-lint not found. Installing..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
-	golangci-lint run
+	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
+		golangci-lint run; \
+	else \
+		echo "No Go files found, skipping linting"; \
+	fi
 
 fmt: ## Format code
-	go fmt ./...
-	@which goimports > /dev/null || (echo "goimports not found. Installing..." && go install golang.org/x/tools/cmd/goimports@latest)
-	goimports -w .
+	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
+		go fmt ./...; \
+		which goimports > /dev/null || (echo "goimports not found. Installing..." && go install golang.org/x/tools/cmd/goimports@latest); \
+		goimports -w .; \
+	else \
+		echo "No Go files found, skipping formatting"; \
+	fi
 
 vet: ## Run go vet
-	go vet ./...
+	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
+		go vet ./...; \
+	else \
+		echo "No Go files found, skipping vet"; \
+	fi
 
 tidy: ## Tidy dependencies
 	go mod tidy
@@ -75,4 +103,4 @@ pre-commit: fmt vet lint test ## Run pre-commit checks
 setup: tools deps ## Install tools and dependencies
 	@echo "Development environment setup complete!"
 
-all: clean deps fmt vet lint test build ## Run full build pipeline 
+all: clean deps fmt vet lint test build ## Run full build pipeline

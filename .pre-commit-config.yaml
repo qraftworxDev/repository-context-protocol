@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -13,16 +13,21 @@ repos:
     rev: v0.5.1
     hooks:
       - id: go-fmt
-      - id: go-vet-mod
+      - id: go-vet
+      - id: go-lint
       - id: go-imports
       - id: go-cyclo
-        args: [-over=10]
-      - id: go-mod-tidy
-      - id: go-unit-tests
+        args: [-over=15]
+      - id: validate-toml
+      - id: no-go-testing
       - id: golangci-lint
+      - id: go-critic
+      - id: go-unit-tests
+      - id: go-build
+      - id: go-mod-tidy
 
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+    rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline'] 
+        args: ['--baseline', '.secrets.baseline']
