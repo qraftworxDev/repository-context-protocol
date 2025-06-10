@@ -33,10 +33,12 @@ integration-test: build ## Run integration tests
 	./scripts/test-integration.sh
 
 lint: ## Run linter
+	@which golangci-lint > /dev/null || (echo "golangci-lint not found. Installing..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
 	golangci-lint run
 
 fmt: ## Format code
 	go fmt ./...
+	@which goimports > /dev/null || (echo "goimports not found. Installing..." && go install golang.org/x/tools/cmd/goimports@latest)
 	goimports -w .
 
 vet: ## Run go vet
@@ -47,6 +49,12 @@ tidy: ## Tidy dependencies
 
 deps: ## Download dependencies
 	go mod download
+
+tools: ## Install development tools
+	@echo "Installing development tools..."
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install golang.org/x/tools/cmd/goimports@latest
+	go install github.com/goreleaser/goreleaser@latest
 
 dev-setup: build ## Setup development environment
 	@echo "Setting up development environment..."
@@ -63,5 +71,8 @@ clean: ## Clean build artifacts
 	rm -f coverage.out coverage.html
 
 pre-commit: fmt vet lint test ## Run pre-commit checks
+
+setup: tools deps ## Install tools and dependencies
+	@echo "Development environment setup complete!"
 
 all: clean deps fmt vet lint test build ## Run full build pipeline 
