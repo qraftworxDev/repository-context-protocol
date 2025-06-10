@@ -41,4 +41,4 @@ if [ ! -d ".repocontext" ]; then
     exit 1
 fi
 
-echo "Integration tests passed!" 
+echo "Integration tests passed!"

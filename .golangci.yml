@@ -76,4 +76,4 @@ issues:
       linters:
         - mnd
         - funlen
-        - goconst 
+        - goconst
