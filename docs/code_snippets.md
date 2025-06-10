@@ -74,7 +74,7 @@ package main
 import (
     "fmt"
     "os"
-    
+
     "github.com/spf13/cobra"
     "github.com/yourorg/repocontext/internal/cli"
 )
@@ -84,12 +84,12 @@ func main() {
         Use:   "repocontext",
         Short: "Semantic code repository indexing and querying tool",
     }
-    
+
     rootCmd.AddCommand(cli.NewInitCommand())
     rootCmd.AddCommand(cli.NewBuildCommand())
     rootCmd.AddCommand(cli.NewQueryCommand())
     rootCmd.AddCommand(cli.NewServeCommand())
-    
+
     if err := rootCmd.Execute(); err != nil {
         fmt.Fprintf(os.Stderr, "Error: %v\n", err)
         os.Exit(1)
@@ -104,9 +104,9 @@ package golang
 
 import (
     "go/ast"
-    "go/parser" 
+    "go/parser"
     "go/token"
-    
+
     "github.com/yourorg/repocontext/internal/models"
 )
 
@@ -126,12 +126,12 @@ func (p *GoParser) ParseFile(path string, content []byte) (*models.FileContext, 
     if err != nil {
         return nil, err
     }
-    
+
     ctx := &models.FileContext{
         Path:     path,
         Language: "go",
     }
-    
+
     // Extract functions, types, etc. from AST
     ast.Inspect(file, func(n ast.Node) bool {
         switch node := n.(type) {
@@ -142,7 +142,7 @@ func (p *GoParser) ParseFile(path string, content []byte) (*models.FileContext, 
         }
         return true
     })
-    
+
     return ctx, nil
 }
 ```

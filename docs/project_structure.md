@@ -2,7 +2,7 @@ repocontext/
 ├── cmd/
 │   ├── repocontext/           # Main CLI binary
 │   │   └── main.go
-│   └── lsp/                   # LSP server binary  
+│   └── lsp/                   # LSP server binary
 │       └── main.go
 ├── internal/
 │   ├── ast/                   # Language parsers

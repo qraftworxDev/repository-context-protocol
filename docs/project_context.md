@@ -13,7 +13,7 @@ Build a Go CLI tool that creates semantic indexes of code repositories for LLM a
 ### Storage Schema
 ```
 .repocontext/
-├── index.db           # SQLite: fast lookups, relationships  
+├── index.db           # SQLite: fast lookups, relationships
 ├── chunks/            # MessagePack: detailed semantic data
 │   ├── auth_001.msgpack
 │   └── api_001.msgpack
@@ -25,7 +25,7 @@ Build a Go CLI tool that creates semantic indexes of code repositories for LLM a
 type FileContext struct {
     Path, Language, Checksum string
     Functions []Function
-    Types []TypeDef  
+    Types []TypeDef
     Imports []Import
     CallGraph map[string][]string
 }
@@ -61,7 +61,7 @@ type Reference struct {
 - Token-aware context building (max_tokens parameter)
 - Target: `repocontext query --json --function "ProcessUser" --include-callers --max-tokens 2000`
 
-### Phase 3: LSP Integration  
+### Phase 3: LSP Integration
 - `cmd/lsp/main.go`: LSP server binary
 - `internal/lsp/server.go`: LSP protocol implementation
 - Handlers: textDocument/definition, textDocument/hover, workspace/symbol
@@ -87,7 +87,7 @@ repocontext query --json --search "authentication" --max-tokens 3000
 # Returns: {functions: [...], types: [...], relationships: {...}, token_count: 2847}
 ```
 
-### LSP Server  
+### LSP Server
 ```go
 // Enhanced editor features
 textDocument/definition → precise cross-file jumps using semantic index
@@ -111,7 +111,7 @@ curl "localhost:8080/context?q=ProcessPayment&max_tokens=2000"
 
 ### Storage Strategy
 - **SQLite**: Fast indexed queries, relationships, metadata
-- **MessagePack**: Compact binary storage for detailed AST data  
+- **MessagePack**: Compact binary storage for detailed AST data
 - **Chunking**: Group related code, load only needed context
 - **Incremental**: Hash-based change detection, update only modified files
 
@@ -123,7 +123,7 @@ curl "localhost:8080/context?q=ProcessPayment&max_tokens=2000"
 
 ## VALIDATION CRITERIA
 - **Speed**: Index 10k+ file repo in <30s, queries <200ms
-- **Accuracy**: AST extraction captures 95%+ of semantic relationships  
+- **Accuracy**: AST extraction captures 95%+ of semantic relationships
 - **Integration**: Works with VS Code/Cursor via LSP, callable by LLM agents
 - **Scalability**: Handles repos up to 100k+ files via chunking strategy
 - **Context Quality**: Returns focused, relevant context within token limits
@@ -135,7 +135,7 @@ repocontext/
 ├── internal/
 │   ├── ast/{golang,python,typescript}/    # Language parsers
 │   ├── index/{builder,storage,query}/     # Core indexing
-│   ├── models/                            # Data structures  
+│   ├── models/                            # Data structures
 │   ├── cli/                               # CLI commands
 │   └── lsp/                               # LSP implementation
 ├── testdata/                              # Test repositories

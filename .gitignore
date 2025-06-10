@@ -22,6 +22,25 @@ profile.cov
 
 # Go workspace file
 go.work
+
+# Build artifacts
+bin/
+dist/
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# RepoContext data
+.repocontext/
 go.work.sum
 
 # env file
