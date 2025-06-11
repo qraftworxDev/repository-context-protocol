@@ -8,8 +8,20 @@ type Function struct {
 	Returns    []Type      `json:"returns"`
 	StartLine  int         `json:"start_line"`
 	EndLine    int         `json:"end_line"`
-	Calls      []string    `json:"calls"`     // Functions this calls
-	CalledBy   []string    `json:"called_by"` // Functions that call this
+	Calls      []string    `json:"calls"`     // All function calls (local + cross-file)
+	CalledBy   []string    `json:"called_by"` // All callers (local + cross-file)
+	// Enhanced global relationship tracking
+	LocalCalls       []string        `json:"local_calls"`        // Same-file calls only
+	CrossFileCalls   []CallReference `json:"cross_file_calls"`   // Cross-file calls with metadata
+	LocalCallers     []string        `json:"local_callers"`      // Same-file callers only
+	CrossFileCallers []CallReference `json:"cross_file_callers"` // Cross-file callers with metadata
+}
+
+// CallReference represents a call relationship with additional metadata
+type CallReference struct {
+	FunctionName string `json:"function_name"`  // Name of the called/calling function
+	File         string `json:"file"`           // File where the function is defined
+	Line         int    `json:"line,omitempty"` // Line number where the call occurs
 }
 
 type Parameter struct {

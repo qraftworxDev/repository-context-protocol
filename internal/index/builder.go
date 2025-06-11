@@ -135,9 +135,65 @@ func (ib *IndexBuilder) ProcessDirectory(dirPath string) error {
 func (ib *IndexBuilder) BuildIndex() (*IndexStatistics, error) {
 	ib.stats.StartTime = time.Now()
 
-	// Process all files in the root directory
-	if err := ib.ProcessDirectory(ib.rootPath); err != nil {
+	// Phase 1: Parse all files individually
+	var fileContexts []models.FileContext
+	err := filepath.Walk(ib.rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Get file extension
+		ext := strings.ToLower(filepath.Ext(path))
+
+		// Find appropriate parser using registry
+		parser, exists := ib.parserRegistry.GetParser(ext)
+		if !exists {
+			// Skip unsupported file types
+			return nil
+		}
+
+		// Read file content
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", path, err)
+		}
+
+		// Parse the file using the registry parser
+		fileContext, err := parser.ParseFile(path, content)
+		if err != nil {
+			return fmt.Errorf("failed to parse file %s: %w", path, err)
+		}
+
+		// Add to collection for global analysis
+		fileContexts = append(fileContexts, *fileContext)
+
+		return nil
+	})
+
+	if err != nil {
 		return nil, fmt.Errorf("failed to process directory: %w", err)
+	}
+
+	// Phase 2: Global enrichment - enhance file contexts with cross-file analysis
+	enrichment := NewGlobalEnrichment()
+	enrichedContexts, err := enrichment.EnrichFileContexts(fileContexts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to enrich file contexts: %w", err)
+	}
+
+	// Phase 3: Store enriched contexts
+	for i := range enrichedContexts {
+		if err := ib.storage.StoreFileContext(&enrichedContexts[i]); err != nil {
+			return nil, fmt.Errorf("failed to store file context: %w", err)
+		}
+
+		// Update statistics
+		ib.updateStatistics(&enrichedContexts[i])
 	}
 
 	ib.stats.EndTime = time.Now()
