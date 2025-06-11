@@ -41,9 +41,13 @@ coverage: ## Run tests with coverage
 	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
 		go test -v -race -coverprofile=coverage.out ./...; \
 		go tool cover -html=coverage.out -o coverage.html; \
+		go tool cover -func=coverage.out | tail -1; \
 	else \
 		echo "No Go files found, skipping coverage"; \
 	fi
+
+coverage-report: ## Generate detailed coverage report
+	@./scripts/coverage.sh
 
 integration-test: build ## Run integration tests
 	./scripts/test-integration.sh
