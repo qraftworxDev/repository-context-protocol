@@ -100,3 +100,99 @@ func TestExport_Creation(t *testing.T) {
 		t.Errorf("Expected kind 'function', got %s", export.Kind)
 	}
 }
+
+func TestCallReference_Creation(t *testing.T) {
+	ref := CallReference{
+		FunctionName: "ProcessUser",
+		File:         "user.go",
+		Line:         15,
+	}
+
+	if ref.FunctionName != "ProcessUser" {
+		t.Errorf("Expected function name 'ProcessUser', got %s", ref.FunctionName)
+	}
+	if ref.File != "user.go" {
+		t.Errorf("Expected file 'user.go', got %s", ref.File)
+	}
+	if ref.Line != 15 {
+		t.Errorf("Expected line 15, got %d", ref.Line)
+	}
+}
+
+func TestFunction_EnhancedCallTracking(t *testing.T) {
+	fn := &Function{
+		Name:      "main",
+		Signature: "func main()",
+		StartLine: 10,
+		EndLine:   15,
+		// All calls (local + cross-file)
+		Calls:    []string{"localHelper", "user.CreateUser", "fmt.Println"},
+		CalledBy: []string{}, // main is not called by anyone
+		// Local calls only
+		LocalCalls:   []string{"localHelper"},
+		LocalCallers: []string{},
+		// Cross-file calls with metadata
+		CrossFileCalls: []CallReference{
+			{FunctionName: "CreateUser", File: "user.go", Line: 12},
+			{FunctionName: "fmt.Println", File: "fmt", Line: 13},
+		},
+		CrossFileCallers: []CallReference{}, // main is not called by other files
+	}
+
+	// Test all calls include both local and cross-file
+	if len(fn.Calls) != 3 {
+		t.Errorf("Expected 3 total calls, got %d", len(fn.Calls))
+	}
+
+	// Test local calls separation
+	if len(fn.LocalCalls) != 1 {
+		t.Errorf("Expected 1 local call, got %d", len(fn.LocalCalls))
+	}
+	if fn.LocalCalls[0] != "localHelper" {
+		t.Errorf("Expected local call 'localHelper', got %s", fn.LocalCalls[0])
+	}
+
+	// Test cross-file calls with metadata
+	if len(fn.CrossFileCalls) != 2 {
+		t.Errorf("Expected 2 cross-file calls, got %d", len(fn.CrossFileCalls))
+	}
+
+	createUserCall := fn.CrossFileCalls[0]
+	if createUserCall.FunctionName != "CreateUser" {
+		t.Errorf("Expected cross-file call 'CreateUser', got %s", createUserCall.FunctionName)
+	}
+	if createUserCall.File != "user.go" {
+		t.Errorf("Expected cross-file call file 'user.go', got %s", createUserCall.File)
+	}
+	if createUserCall.Line != 12 {
+		t.Errorf("Expected cross-file call line 12, got %d", createUserCall.Line)
+	}
+}
+
+func TestFunction_CrossFileCallers(t *testing.T) {
+	fn := &Function{
+		Name:      "CreateUser",
+		Signature: "func CreateUser(name string) *User",
+		StartLine: 5,
+		EndLine:   8,
+		// Called by functions in other files
+		CalledBy:     []string{"main", "TestCreateUser"},
+		LocalCallers: []string{"TestCreateUser"}, // Local test function
+		CrossFileCallers: []CallReference{
+			{FunctionName: "main", File: "main.go", Line: 12},
+		},
+	}
+
+	// Test cross-file callers
+	if len(fn.CrossFileCallers) != 1 {
+		t.Errorf("Expected 1 cross-file caller, got %d", len(fn.CrossFileCallers))
+	}
+
+	mainCaller := fn.CrossFileCallers[0]
+	if mainCaller.FunctionName != "main" {
+		t.Errorf("Expected cross-file caller 'main', got %s", mainCaller.FunctionName)
+	}
+	if mainCaller.File != "main.go" {
+		t.Errorf("Expected cross-file caller file 'main.go', got %s", mainCaller.File)
+	}
+}
