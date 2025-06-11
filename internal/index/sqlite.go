@@ -272,7 +272,25 @@ func (si *SQLiteIndex) DeleteChunk(chunkID string) error {
 		_ = tx.Rollback()
 	}()
 
-	// Delete related index entries first (due to foreign key constraint)
+	// First, get the files associated with this chunk so we can delete call relations
+	var filesStr string
+	err = tx.QueryRow("SELECT files FROM chunks WHERE chunk_id = ?", chunkID).Scan(&filesStr)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to get chunk files: %w", err)
+	}
+
+	// Delete call relations for files in this chunk
+	if filesStr != "" {
+		files := strings.Split(filesStr, ",")
+		for _, file := range files {
+			_, err = tx.Exec("DELETE FROM call_relations WHERE file = ? OR caller_file = ?", file, file)
+			if err != nil {
+				return fmt.Errorf("failed to delete call relations for file %s: %w", file, err)
+			}
+		}
+	}
+
+	// Delete related index entries (due to foreign key constraint, this should cascade)
 	_, err = tx.Exec("DELETE FROM index_entries WHERE chunk_id = ?", chunkID)
 	if err != nil {
 		return fmt.Errorf("failed to delete index entries: %w", err)
