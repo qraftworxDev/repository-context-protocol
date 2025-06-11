@@ -10,6 +10,7 @@ linters-settings:
           - $gostd
           - repository-context-protocol
           - github.com/vmihailenco/msgpack/v5
+          - github.com/mattn/go-sqlite3
   govet:
     enable:
       - shadow
