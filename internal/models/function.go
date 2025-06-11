@@ -29,6 +29,14 @@ type Variable struct {
 	EndLine   int    `json:"end_line"`
 }
 
+type Constant struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Value     string `json:"value,omitempty"` // Optional: the constant value
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+}
+
 type Import struct {
 	Path  string `json:"path"`
 	Alias string `json:"alias,omitempty"`

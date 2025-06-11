@@ -19,6 +19,7 @@ type FileContext struct {
 	Functions []Function `json:"functions"`
 	Types     []TypeDef  `json:"types"`
 	Variables []Variable `json:"variables"`
+	Constants []Constant `json:"constants"`
 	Imports   []Import   `json:"imports"`
 	Exports   []Export   `json:"exports"`
 }

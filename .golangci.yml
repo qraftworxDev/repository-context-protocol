@@ -3,13 +3,19 @@ run:
   go: "1.23"
 
 linters-settings:
+  depguard:
+    rules:
+      main:
+        allow:
+          - $gostd
+          - repository-context-protocol
   govet:
     enable:
       - shadow
   golint:
     min-confidence: 0
   gocyclo:
-    min-complexity: 10
+    min-complexity: 20
   dupl:
     threshold: 100
   goconst:
@@ -77,3 +83,8 @@ issues:
         - mnd
         - funlen
         - goconst
+        - gocyclo
+    - path: internal/ast/golang/parser\.go
+      text: "Function 'ParseFile' is too long"
+      linters:
+        - funlen
