@@ -81,8 +81,14 @@ func (ib *IndexBuilder) ProcessFile(filePath string) error {
 		return fmt.Errorf("index builder not initialized")
 	}
 
+	// Validate and clean the file path
+	cleanPath, err := ib.validateAndCleanPath(filePath)
+	if err != nil {
+		return fmt.Errorf("invalid file path %s: %w", filePath, err)
+	}
+
 	// Get file extension
-	ext := strings.ToLower(filepath.Ext(filePath))
+	ext := strings.ToLower(filepath.Ext(cleanPath))
 
 	// Find appropriate parser using registry
 	parser, exists := ib.parserRegistry.GetParser(ext)
@@ -92,15 +98,15 @@ func (ib *IndexBuilder) ProcessFile(filePath string) error {
 	}
 
 	// Read file content
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(cleanPath) // #nosec G304 - Path validated above
 	if err != nil {
-		return fmt.Errorf("failed to read file %s: %w", filePath, err)
+		return fmt.Errorf("failed to read file %s: %w", cleanPath, err)
 	}
 
 	// Parse the file using the registry parser
-	fileContext, err := parser.ParseFile(filePath, content)
+	fileContext, err := parser.ParseFile(cleanPath, content)
 	if err != nil {
-		return fmt.Errorf("failed to parse file %s: %w", filePath, err)
+		return fmt.Errorf("failed to parse file %s: %w", cleanPath, err)
 	}
 
 	// Store in hybrid storage
@@ -147,8 +153,15 @@ func (ib *IndexBuilder) BuildIndex() (*IndexStatistics, error) {
 			return nil
 		}
 
+		// Validate and clean the file path
+		cleanPath, validateErr := ib.validateAndCleanPath(path)
+		if validateErr != nil {
+			// Log but continue with other files
+			return nil
+		}
+
 		// Get file extension
-		ext := strings.ToLower(filepath.Ext(path))
+		ext := strings.ToLower(filepath.Ext(cleanPath))
 
 		// Find appropriate parser using registry
 		parser, exists := ib.parserRegistry.GetParser(ext)
@@ -158,15 +171,15 @@ func (ib *IndexBuilder) BuildIndex() (*IndexStatistics, error) {
 		}
 
 		// Read file content
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(cleanPath) // #nosec G304 - Path validated above
 		if err != nil {
-			return fmt.Errorf("failed to read file %s: %w", path, err)
+			return fmt.Errorf("failed to read file %s: %w", cleanPath, err)
 		}
 
 		// Parse the file using the registry parser
-		fileContext, err := parser.ParseFile(path, content)
+		fileContext, err := parser.ParseFile(cleanPath, content)
 		if err != nil {
-			return fmt.Errorf("failed to parse file %s: %w", path, err)
+			return fmt.Errorf("failed to parse file %s: %w", cleanPath, err)
 		}
 
 		// Add to collection for global analysis
@@ -234,4 +247,28 @@ func (ib *IndexBuilder) Close() error {
 	ib.parserRegistry = nil
 
 	return nil
+}
+
+// validateAndCleanPath validates and cleans a file path for security
+func (ib *IndexBuilder) validateAndCleanPath(path string) (string, error) {
+	// Clean the path to prevent path traversal attacks
+	cleanPath := filepath.Clean(path)
+
+	// Get absolute paths for comparison
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	absRootPath, err := filepath.Abs(ib.rootPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute root path: %w", err)
+	}
+
+	// Check if the path is within the root directory
+	if !strings.HasPrefix(absPath, absRootPath) {
+		return "", fmt.Errorf("path is outside root directory")
+	}
+
+	return cleanPath, nil
 }

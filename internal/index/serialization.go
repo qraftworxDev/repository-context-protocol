@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"repository-context-protocol/internal/models"
 
@@ -57,11 +58,24 @@ func (cs *ChunkSerializer) SaveChunk(chunk *models.SemanticChunk) error {
 func (cs *ChunkSerializer) LoadChunk(chunkID string) (models.SemanticChunk, error) {
 	var chunk models.SemanticChunk
 
+	// Validate chunk ID to prevent path traversal
+	if err := cs.validateChunkID(chunkID); err != nil {
+		return chunk, fmt.Errorf("invalid chunk ID: %w", err)
+	}
+
 	// Generate the file path
 	filePath := cs.GetChunkPath(chunkID)
 
+	// Clean the path to prevent path traversal attacks
+	filePath = filepath.Clean(filePath)
+
+	// Validate that the path is within our base directory
+	if err := cs.validatePath(filePath); err != nil {
+		return chunk, fmt.Errorf("invalid file path: %w", err)
+	}
+
 	// Read the file
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) // #nosec G304 - Path validated above
 	if err != nil {
 		return chunk, fmt.Errorf("failed to read chunk file: %w", err)
 	}
@@ -115,4 +129,39 @@ func (cs *ChunkSerializer) ListChunks() ([]string, error) {
 	}
 
 	return chunkIDs, nil
+}
+
+// validateChunkID validates that a chunk ID is safe to use
+func (cs *ChunkSerializer) validateChunkID(chunkID string) error {
+	if chunkID == "" {
+		return fmt.Errorf("chunk ID cannot be empty")
+	}
+
+	// Check for path traversal attempts
+	if strings.Contains(chunkID, "..") || strings.Contains(chunkID, "/") || strings.Contains(chunkID, "\\") {
+		return fmt.Errorf("chunk ID contains invalid characters")
+	}
+
+	return nil
+}
+
+// validatePath ensures the path is within the base directory
+func (cs *ChunkSerializer) validatePath(path string) error {
+	// Get absolute paths for comparison
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	absBaseDir, err := filepath.Abs(cs.baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute base directory: %w", err)
+	}
+
+	// Check if the path is within the base directory
+	if !strings.HasPrefix(absPath, absBaseDir) {
+		return fmt.Errorf("path is outside base directory")
+	}
+
+	return nil
 }
