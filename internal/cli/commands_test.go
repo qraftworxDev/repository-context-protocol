@@ -43,6 +43,7 @@ func TestRootCommand_HasSubcommands(t *testing.T) {
 	expectedCommands := map[string]bool{
 		"init":  false,
 		"build": false,
+		"query": false,
 	}
 
 	// Check that expected commands are present
@@ -129,6 +130,48 @@ func TestRootCommand_BuildSubcommand(t *testing.T) {
 	}
 }
 
+func TestRootCommand_QuerySubcommand(t *testing.T) {
+	cmd := NewRootCommand()
+
+	// Find the query subcommand
+	var queryCmd *cobra.Command
+	for _, subcmd := range cmd.Commands() {
+		if subcmd.Use == "query" {
+			queryCmd = subcmd
+			break
+		}
+	}
+
+	if queryCmd == nil {
+		t.Fatal("Expected 'query' subcommand to be registered")
+	}
+
+	// Test query command properties
+	if queryCmd.Short == "" {
+		t.Error("Expected query command to have Short description")
+	}
+
+	if queryCmd.RunE == nil {
+		t.Error("Expected query command to have RunE function")
+	}
+
+	// Test that query command has expected flags
+	pathFlag := queryCmd.Flags().Lookup("path")
+	if pathFlag == nil {
+		t.Error("Expected query command to have 'path' flag")
+	}
+
+	functionFlag := queryCmd.Flags().Lookup("function")
+	if functionFlag == nil {
+		t.Error("Expected query command to have 'function' flag")
+	}
+
+	formatFlag := queryCmd.Flags().Lookup("format")
+	if formatFlag == nil {
+		t.Error("Expected query command to have 'format' flag")
+	}
+}
+
 func TestRootCommand_HelpOutput(t *testing.T) {
 	cmd := NewRootCommand()
 
@@ -152,6 +195,10 @@ func TestRootCommand_HelpOutput(t *testing.T) {
 
 	if !strings.Contains(helpStr, "build") {
 		t.Error("Expected help output to contain 'build' subcommand")
+	}
+
+	if !strings.Contains(helpStr, "query") {
+		t.Error("Expected help output to contain 'query' subcommand")
 	}
 }
 
@@ -216,5 +263,13 @@ func TestRootCommand_SubcommandIntegration(t *testing.T) {
 	}
 	if buildCmd == nil || buildCmd.Use != "build" {
 		t.Error("Expected to find 'build' subcommand")
+	}
+
+	queryCmd, _, err := cmd.Find([]string{"query"})
+	if err != nil {
+		t.Errorf("Failed to find 'query' subcommand: %v", err)
+	}
+	if queryCmd == nil || queryCmd.Use != "query" {
+		t.Error("Expected to find 'query' subcommand")
 	}
 }

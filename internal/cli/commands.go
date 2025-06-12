@@ -46,6 +46,7 @@ Use 'repocontext <command> --help' for more information about a command.`,
 	// Add subcommands
 	rootCmd.AddCommand(NewInitCommand())
 	rootCmd.AddCommand(NewBuildCommand())
+	rootCmd.AddCommand(NewQueryCommand())
 
 	return rootCmd
 }
