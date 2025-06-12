@@ -16,9 +16,7 @@ func TestHybridStorage_QueryCallGraph(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -130,9 +128,7 @@ func TestHybridStorage_QueryCallGraphWithChunkData(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -207,9 +203,7 @@ func TestHybridStorage_UpdateCallGraph(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()

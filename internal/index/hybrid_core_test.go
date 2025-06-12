@@ -17,9 +17,7 @@ func TestHybridStorage_Initialize(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -64,9 +62,7 @@ func TestHybridStorage_StoreFileContext(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -150,9 +146,7 @@ func TestHybridStorage_QueryByName(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -215,9 +209,7 @@ func TestHybridStorage_QueryByType(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -291,9 +283,7 @@ func TestHybridStorage_DeleteFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()
@@ -351,9 +341,7 @@ func TestHybridStorage_Close(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	storage := &HybridStorage{
-		baseDir: tempDir,
-	}
+	storage := NewHybridStorage(tempDir)
 
 	// Initialize hybrid storage
 	err = storage.Initialize()

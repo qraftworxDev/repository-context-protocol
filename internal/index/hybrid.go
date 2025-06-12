@@ -1,16 +1,19 @@
 package index
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"repository-context-protocol/internal/models"
 )
 
 const (
 	// Directory permissions for hybrid storage directories
-	dirPermissions = 0755
+	dirPermissions  = 0755
+	filePermissions = 0600
 )
 
 // HybridStorage combines SQLite indexing with MessagePack chunk storage
@@ -19,6 +22,8 @@ type HybridStorage struct {
 	sqliteIndex      *SQLiteIndex
 	chunkSerializer  *ChunkSerializer
 	chunkingStrategy ChunkingStrategy
+	manifest         *models.Manifest
+	manifestPath     string
 }
 
 // QueryResult combines index entry with chunk data
@@ -36,7 +41,8 @@ type CallGraphResult struct {
 // NewHybridStorage creates a new hybrid storage instance
 func NewHybridStorage(baseDir string) *HybridStorage {
 	return &HybridStorage{
-		baseDir: baseDir,
+		baseDir:      baseDir,
+		manifestPath: filepath.Join(baseDir, "manifest.json"),
 	}
 }
 
@@ -65,6 +71,11 @@ func (h *HybridStorage) Initialize() error {
 
 	// Initialize chunking strategy (file-based for now)
 	h.chunkingStrategy = &FileBasedChunking{}
+
+	// Load or initialize manifest
+	if err := h.loadManifest(); err != nil {
+		return fmt.Errorf("failed to load manifest: %w", err)
+	}
 
 	return nil
 }
@@ -118,6 +129,11 @@ func (h *HybridStorage) storeChunk(chunk *models.SemanticChunk) error {
 		if err := h.indexFileData(fileData, chunk.ID); err != nil {
 			return err
 		}
+	}
+
+	// Update manifest with chunk information
+	if err := h.updateManifestForChunk(chunk); err != nil {
+		return fmt.Errorf("failed to update manifest for chunk %s: %w", chunk.ID, err)
 	}
 
 	return nil
@@ -371,6 +387,14 @@ func (h *HybridStorage) DeleteFile(filePath string) error {
 			if err := h.chunkSerializer.DeleteChunk(chunkID); err != nil {
 				return fmt.Errorf("failed to delete chunk file: %w", err)
 			}
+
+			// Remove chunk from manifest
+			if h.manifest != nil {
+				delete(h.manifest.Chunks, chunkID)
+				if err := h.saveManifest(); err != nil {
+					return fmt.Errorf("failed to update manifest after deleting chunk: %w", err)
+				}
+			}
 		}
 	}
 
@@ -390,4 +414,90 @@ func (h *HybridStorage) Close() error {
 	h.chunkingStrategy = nil
 
 	return nil
+}
+
+// loadManifest loads the manifest from disk or creates a new one
+func (h *HybridStorage) loadManifest() error {
+	// Try to load existing manifest
+	if data, err := os.ReadFile(h.manifestPath); err == nil {
+		// Manifest exists, parse it
+		h.manifest = &models.Manifest{}
+		if unmarshalErr := json.Unmarshal(data, h.manifest); unmarshalErr != nil {
+			return fmt.Errorf("failed to parse manifest: %w", unmarshalErr)
+		}
+		// Ensure Chunks map is initialized (in case JSON had null/missing chunks field)
+		if h.manifest.Chunks == nil {
+			h.manifest.Chunks = make(map[string]models.ChunkInfo)
+		}
+	} else if os.IsNotExist(err) {
+		// Manifest doesn't exist, create a new one
+		h.manifest = &models.Manifest{
+			Version:   "1.0.0",
+			Chunks:    make(map[string]models.ChunkInfo),
+			UpdatedAt: time.Now(),
+		}
+		// Save the new manifest
+		if saveErr := h.saveManifest(); saveErr != nil {
+			return fmt.Errorf("failed to save new manifest: %w", saveErr)
+		}
+	} else {
+		return fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	return nil
+}
+
+// saveManifest saves the current manifest to disk
+func (h *HybridStorage) saveManifest() error {
+	if h.manifest == nil {
+		return fmt.Errorf("manifest is nil")
+	}
+
+	// Update timestamp
+	h.manifest.UpdatedAt = time.Now()
+
+	// Marshal to JSON
+	data, err := json.MarshalIndent(h.manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(h.manifestPath, data, filePermissions); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
+	}
+
+	return nil
+}
+
+// updateManifestForChunk adds or updates chunk information in the manifest
+func (h *HybridStorage) updateManifestForChunk(chunk *models.SemanticChunk) error {
+	if h.manifest == nil {
+		return fmt.Errorf("manifest is nil")
+	}
+
+	// Ensure Chunks map is initialized (defensive programming)
+	if h.manifest.Chunks == nil {
+		h.manifest.Chunks = make(map[string]models.ChunkInfo)
+	}
+
+	// Create chunk info
+	chunkInfo := models.ChunkInfo{
+		Files:      chunk.Files,
+		Size:       0, // We'll calculate this from the serialized chunk
+		TokenCount: chunk.TokenCount,
+		UpdatedAt:  chunk.CreatedAt,
+	}
+
+	// Calculate serialized chunk size if possible
+	chunkPath := h.chunkSerializer.GetChunkPath(chunk.ID)
+	if info, err := os.Stat(chunkPath); err == nil {
+		chunkInfo.Size = int(info.Size())
+	}
+
+	// Add to manifest
+	h.manifest.Chunks[chunk.ID] = chunkInfo
+
+	// Save manifest
+	return h.saveManifest()
 }
