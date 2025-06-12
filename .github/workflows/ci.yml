@@ -40,14 +40,6 @@ jobs:
     - name: Run tests
       run: make test
 
-    - name: Run tests with coverage
-      run: make coverage
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./coverage.out
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
