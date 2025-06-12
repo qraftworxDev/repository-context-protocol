@@ -1,7 +1,6 @@
 # Repository Context Protocol
 
 [![codecov](https://codecov.io/gh/qraftworxDev/repository-context-protocol/graph/badge.svg?token=IV7364HI6X)](https://codecov.io/gh/qraftworxDev/repository-context-protocol)
-[![Tests](https://github.com/qraftworxDev/repository-context-protocol/workflows/Tests/badge.svg)](https://github.com/qraftworxDev/repository-context-protocol/actions)
 
 A comprehensive tool for analyzing and indexing code repositories with rich context extraction and global call graph analysis.
 
