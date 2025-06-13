@@ -134,14 +134,14 @@ func addQueryFlags(cmd *cobra.Command, flags *QueryFlags) {
 
 // runQuery executes the query command
 func runQuery(flags *QueryFlags) error {
+	// Handle JSON flag first, before validation
+	if flags.JSON {
+		flags.Format = "json"
+	}
+
 	// Validate inputs
 	if err := validateQueryInputs(flags); err != nil {
 		return err
-	}
-
-	// Handle JSON flag
-	if flags.JSON {
-		flags.Format = "json"
 	}
 
 	// Execute search

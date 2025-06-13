@@ -3,7 +3,10 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"repository-context-protocol/internal/index"
 )
 
 func TestNewQueryCommand(t *testing.T) {
@@ -234,4 +237,58 @@ func TestQueryCommand_ValidationInvalidMaxTokens(t *testing.T) {
 	}
 
 	// The validation will happen in the RunE function
+}
+
+func TestQueryCommand_ValidationInvalidFormatWithJSON(t *testing.T) {
+	// Create temporary directory with .repocontext
+	tempDir, err := os.MkdirTemp("", "query_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create .repocontext directory
+	repoContextDir := filepath.Join(tempDir, ".repocontext")
+	err = os.MkdirAll(repoContextDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create .repocontext directory: %v", err)
+	}
+
+	// Initialize storage to avoid search failures
+	storage := index.NewHybridStorage(repoContextDir)
+	err = storage.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer storage.Close()
+
+	cmd := NewQueryCommand()
+	err = cmd.Flags().Set("path", tempDir)
+	if err != nil {
+		t.Fatalf("Failed to set path flag: %v", err)
+	}
+
+	err = cmd.Flags().Set("function", "TestFunc")
+	if err != nil {
+		t.Fatalf("Failed to set function flag: %v", err)
+	}
+
+	// Set both invalid format and json flag
+	err = cmd.Flags().Set("format", "invalid")
+	if err != nil {
+		t.Fatalf("Failed to set format flag: %v", err)
+	}
+
+	err = cmd.Flags().Set("json", "true")
+	if err != nil {
+		t.Fatalf("Failed to set json flag: %v", err)
+	}
+
+	// Should succeed because JSON flag should override the invalid format before validation
+	// The effective format should be "json" which is valid
+	err = cmd.RunE(cmd, []string{})
+	if err != nil && strings.Contains(err.Error(), "invalid format") {
+		t.Error("Expected command to succeed when JSON flag overrides invalid format, but got format validation error")
+	}
+	// Note: The command might still fail due to no search results, but it shouldn't fail due to format validation
 }
