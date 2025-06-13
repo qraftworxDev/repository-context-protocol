@@ -99,7 +99,8 @@ func TestQueryCommand_FlagDefaults(t *testing.T) {
 func TestQueryCommand_MutuallyExclusiveFlags(t *testing.T) {
 	cmd := NewQueryCommand()
 
-	// Test setting multiple search type flags should work (they're OR-ed together)
+	// Test setting multiple search type flags should be allowed at the CLI level
+	// (validation will happen later in the execution)
 	err := cmd.Flags().Set("function", "TestFunc")
 	if err != nil {
 		t.Errorf("Failed to set function flag: %v", err)
@@ -108,6 +109,17 @@ func TestQueryCommand_MutuallyExclusiveFlags(t *testing.T) {
 	err = cmd.Flags().Set("type", "TestType")
 	if err != nil {
 		t.Errorf("Failed to set type flag: %v", err)
+	}
+
+	// Both flags should be set successfully at the CLI level
+	functionFlag := cmd.Flags().Lookup("function")
+	if functionFlag.Value.String() != "TestFunc" {
+		t.Errorf("Expected function flag to be 'TestFunc', got '%s'", functionFlag.Value.String())
+	}
+
+	typeFlag := cmd.Flags().Lookup("type")
+	if typeFlag.Value.String() != "TestType" {
+		t.Errorf("Expected type flag to be 'TestType', got '%s'", typeFlag.Value.String())
 	}
 }
 
@@ -291,4 +303,156 @@ func TestQueryCommand_ValidationInvalidFormatWithJSON(t *testing.T) {
 		t.Error("Expected command to succeed when JSON flag overrides invalid format, but got format validation error")
 	}
 	// Note: The command might still fail due to no search results, but it shouldn't fail due to format validation
+}
+
+func TestQueryCommand_ValidationMultipleSearchCriteria(t *testing.T) {
+	// Create temporary directory with .repocontext
+	tempDir, err := os.MkdirTemp("", "query_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create .repocontext directory
+	repoContextDir := filepath.Join(tempDir, ".repocontext")
+	err = os.MkdirAll(repoContextDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create .repocontext directory: %v", err)
+	}
+
+	cmd := NewQueryCommand()
+	err = cmd.Flags().Set("path", tempDir)
+	if err != nil {
+		t.Fatalf("Failed to set path flag: %v", err)
+	}
+
+	// Set multiple search criteria flags
+	err = cmd.Flags().Set("function", "TestFunc")
+	if err != nil {
+		t.Fatalf("Failed to set function flag: %v", err)
+	}
+
+	err = cmd.Flags().Set("type", "TestType")
+	if err != nil {
+		t.Fatalf("Failed to set type flag: %v", err)
+	}
+
+	// Should fail because multiple search criteria are specified
+	err = cmd.RunE(cmd, []string{})
+	if err == nil {
+		t.Error("Expected command to fail when multiple search criteria are specified")
+	}
+
+	expectedErrorSubstring := "exactly one search criterion must be specified"
+	if err != nil && !strings.Contains(err.Error(), expectedErrorSubstring) {
+		t.Errorf("Expected error to contain '%s', but got: %v", expectedErrorSubstring, err)
+	}
+}
+
+func TestQueryCommand_ValidationTooManySearchCriteria(t *testing.T) {
+	// Create temporary directory with .repocontext
+	tempDir, err := os.MkdirTemp("", "query_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create .repocontext directory
+	repoContextDir := filepath.Join(tempDir, ".repocontext")
+	err = os.MkdirAll(repoContextDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create .repocontext directory: %v", err)
+	}
+
+	cmd := NewQueryCommand()
+	err = cmd.Flags().Set("path", tempDir)
+	if err != nil {
+		t.Fatalf("Failed to set path flag: %v", err)
+	}
+
+	// Set three different search criteria flags
+	err = cmd.Flags().Set("function", "TestFunc")
+	if err != nil {
+		t.Fatalf("Failed to set function flag: %v", err)
+	}
+
+	err = cmd.Flags().Set("variable", "TestVar")
+	if err != nil {
+		t.Fatalf("Failed to set variable flag: %v", err)
+	}
+
+	err = cmd.Flags().Set("search", "pattern*")
+	if err != nil {
+		t.Fatalf("Failed to set search flag: %v", err)
+	}
+
+	// Should fail because multiple search criteria are specified
+	err = cmd.RunE(cmd, []string{})
+	if err == nil {
+		t.Error("Expected command to fail when multiple search criteria are specified")
+	}
+
+	expectedErrorSubstring := "exactly one search criterion must be specified"
+	if err != nil && !strings.Contains(err.Error(), expectedErrorSubstring) {
+		t.Errorf("Expected error to contain '%s', but got: %v", expectedErrorSubstring, err)
+	}
+}
+
+func TestQueryCommand_ValidationExactlyOneSearchCriterion(t *testing.T) {
+	// Create temporary directory with .repocontext
+	tempDir, err := os.MkdirTemp("", "query_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create .repocontext directory
+	repoContextDir := filepath.Join(tempDir, ".repocontext")
+	err = os.MkdirAll(repoContextDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create .repocontext directory: %v", err)
+	}
+
+	// Initialize storage to avoid search failures
+	storage := index.NewHybridStorage(repoContextDir)
+	err = storage.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer storage.Close()
+
+	tests := []struct {
+		name  string
+		flag  string
+		value string
+	}{
+		{"function", "function", "TestFunc"},
+		{"type", "type", "TestType"},
+		{"variable", "variable", "TestVar"},
+		{"file", "file", "test.go"},
+		{"search", "search", "pattern*"},
+		{"entity-type", "entity-type", "function"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := NewQueryCommand()
+			err = cmd.Flags().Set("path", tempDir)
+			if err != nil {
+				t.Fatalf("Failed to set path flag: %v", err)
+			}
+
+			// Set exactly one search criterion flag
+			err = cmd.Flags().Set(test.flag, test.value)
+			if err != nil {
+				t.Fatalf("Failed to set %s flag: %v", test.flag, err)
+			}
+
+			// Should not fail validation (might fail on search execution but that's fine)
+			err = cmd.RunE(cmd, []string{})
+			if err != nil && strings.Contains(err.Error(), "exactly one search criterion must be specified") {
+				t.Errorf("Expected command to pass validation with exactly one search criterion (%s), but got validation error: %v", test.flag, err)
+			}
+		})
+	}
 }

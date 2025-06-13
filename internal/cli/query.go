@@ -237,11 +237,34 @@ func validateRepository(path string) error {
 	return nil
 }
 
-// validateSearchCriteria ensures at least one search criterion is provided
+// validateSearchCriteria ensures exactly one search criterion is provided
 func validateSearchCriteria(flags *QueryFlags) error {
-	if flags.Function == "" && flags.Type == "" && flags.Variable == "" &&
-		flags.File == "" && flags.Search == "" && flags.EntityType == "" {
+	// Count how many search criteria are specified
+	count := 0
+	if flags.Function != "" {
+		count++
+	}
+	if flags.Type != "" {
+		count++
+	}
+	if flags.Variable != "" {
+		count++
+	}
+	if flags.File != "" {
+		count++
+	}
+	if flags.Search != "" {
+		count++
+	}
+	if flags.EntityType != "" {
+		count++
+	}
+
+	if count == 0 {
 		return fmt.Errorf("at least one search criterion must be specified")
+	}
+	if count > 1 {
+		return fmt.Errorf("exactly one search criterion must be specified, but %d were provided", count)
 	}
 	return nil
 }
