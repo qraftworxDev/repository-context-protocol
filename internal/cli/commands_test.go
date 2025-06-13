@@ -205,10 +205,31 @@ func TestRootCommand_HelpOutput(t *testing.T) {
 func TestRootCommand_Version(t *testing.T) {
 	cmd := NewRootCommand()
 
-	// Test that version flag exists
-	versionFlag := cmd.Flags().Lookup("version")
-	if versionFlag == nil {
-		t.Error("Expected root command to have 'version' flag")
+	// Test that version is set using Cobra's native version handling
+	if cmd.Version == "" {
+		t.Error("Expected root command to have Version field set")
+	}
+
+	// Test that the version matches our constant
+	if cmd.Version != Version {
+		t.Errorf("Expected version to be '%s', got '%s'", Version, cmd.Version)
+	}
+
+	// Test that --version flag works (Cobra handles this automatically)
+	cmd.SetArgs([]string{"--version"})
+
+	// Capture output to test version output format
+	var outBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Errorf("Expected --version to execute successfully, got error: %v", err)
+	}
+
+	output := outBuf.String()
+	if !strings.Contains(output, Version) {
+		t.Errorf("Expected version output to contain '%s', got: %s", Version, output)
 	}
 }
 

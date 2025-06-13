@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -11,8 +9,6 @@ const Version = "1.0.0"
 
 // NewRootCommand creates the root command for the repocontext CLI
 func NewRootCommand() *cobra.Command {
-	var showVersion bool
-
 	rootCmd := &cobra.Command{
 		Use:   "repocontext",
 		Short: "Repository context protocol CLI tool",
@@ -31,17 +27,16 @@ Features:
 
 Use 'repocontext <command> --help' for more information about a command.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if showVersion {
-				fmt.Printf("repocontext version %s\n", Version)
-				return nil
-			}
 			// If no subcommand is provided, show help
 			return cmd.Help()
 		},
 	}
 
-	// Add version flag
-	rootCmd.Flags().BoolVarP(&showVersion, "version", "V", false, "Show version information")
+	// Set version using Cobra's native version handling
+	rootCmd.Version = Version
+
+	// Customize version output template
+	rootCmd.SetVersionTemplate("repocontext version {{.Version}}\n")
 
 	// Add subcommands
 	rootCmd.AddCommand(NewInitCommand())
