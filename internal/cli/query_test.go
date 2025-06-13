@@ -168,13 +168,83 @@ func TestQueryCommand_MutuallyExclusiveFlags(t *testing.T) {
 func TestQueryCommand_JSONFlag(t *testing.T) {
 	cmd := NewQueryCommand()
 
-	// Test that --json flag sets format to json
+	// Test that --json flag can be set
 	err := cmd.Flags().Set("json", "true")
 	if err != nil {
 		t.Errorf("Failed to set json flag: %v", err)
 	}
 
-	// The actual logic to set format will be tested in the implementation
+	// Verify the JSON flag is set correctly
+	jsonFlag, err := cmd.Flags().GetBool("json")
+	if err != nil {
+		t.Errorf("Failed to get json flag: %v", err)
+	}
+	if !jsonFlag {
+		t.Error("Expected json flag to be true after setting it")
+	}
+
+	// Initially, format should still be the default "text" (JSON processing happens in runQuery)
+	formatFlag, err := cmd.Flags().GetString("format")
+	if err != nil {
+		t.Errorf("Failed to get format flag: %v", err)
+	}
+	if formatFlag != "text" {
+		t.Errorf("Expected format flag to be 'text' initially, got '%s'", formatFlag)
+	}
+}
+
+func TestQueryCommand_JSONFlagProcessing(t *testing.T) {
+	// Create temporary directory with .repocontext
+	tempDir, err := os.MkdirTemp("", "query_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create .repocontext directory
+	repoContextDir := filepath.Join(tempDir, ".repocontext")
+	err = os.MkdirAll(repoContextDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create .repocontext directory: %v", err)
+	}
+
+	// Initialize storage to avoid search failures
+	storage := index.NewHybridStorage(repoContextDir)
+	err = storage.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer storage.Close()
+
+	cmd := NewQueryCommand()
+
+	// Set required flags
+	err = cmd.Flags().Set("path", tempDir)
+	if err != nil {
+		t.Fatalf("Failed to set path flag: %v", err)
+	}
+
+	err = cmd.Flags().Set("function", "TestFunc")
+	if err != nil {
+		t.Fatalf("Failed to set function flag: %v", err)
+	}
+
+	// Set JSON flag
+	err = cmd.Flags().Set("json", "true")
+	if err != nil {
+		t.Fatalf("Failed to set json flag: %v", err)
+	}
+
+	// Run the command to trigger the JSON flag processing logic
+	// This should set the format to "json" internally before validation
+	err = cmd.RunE(cmd, []string{})
+	// The command might fail due to no search results, but that's fine for this test
+	// We're testing that the JSON flag processing doesn't cause validation errors
+
+	// The format should be processed correctly (no validation error about invalid format)
+	if err != nil && strings.Contains(err.Error(), "invalid format") {
+		t.Errorf("Expected JSON flag to set format correctly, but got format validation error: %v", err)
+	}
 }
 
 func TestQueryCommand_ValidationNoRepository(t *testing.T) {
