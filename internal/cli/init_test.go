@@ -237,16 +237,30 @@ func TestInitCommand_PermissionDenied(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Create a read-only directory
-	readOnlyDir := filepath.Join(tempDir, "readonly")
-	err = os.MkdirAll(readOnlyDir, 0444) // Read-only permissions
+	// Create a directory that will be made inaccessible
+	restrictedDir := filepath.Join(tempDir, "restricted")
+	err = os.MkdirAll(restrictedDir, 0755) // Create with normal permissions first
 	if err != nil {
-		t.Fatalf("Failed to create read-only directory: %v", err)
+		t.Fatalf("Failed to create restricted directory: %v", err)
 	}
 
-	// Try to init in read-only directory
+	// Make the directory completely inaccessible (no permissions)
+	err = os.Chmod(restrictedDir, 0000)
+	if err != nil {
+		t.Fatalf("Failed to set restrictive permissions: %v", err)
+	}
+
+	// Ensure we restore permissions for cleanup
+	defer func() {
+		// Restore permissions so the directory can be removed
+		if chmodErr := os.Chmod(restrictedDir, 0755); chmodErr != nil {
+			t.Logf("Warning: Failed to restore permissions for cleanup: %v", chmodErr)
+		}
+	}()
+
+	// Try to init in the inaccessible directory
 	cmd := NewInitCommand()
-	if setErr := cmd.Flags().Set("path", readOnlyDir); setErr != nil {
+	if setErr := cmd.Flags().Set("path", restrictedDir); setErr != nil {
 		t.Fatalf("Failed to set path flag: %v", setErr)
 	}
 
