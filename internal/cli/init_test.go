@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 )
@@ -241,7 +242,7 @@ func TestInitCommand_InvalidPath(t *testing.T) {
 
 func TestInitCommand_PermissionDenied(t *testing.T) {
 	// Skip this test on Windows as permission handling is different
-	if os.Getenv("GOOS") == "windows" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping permission test on Windows")
 	}
 
