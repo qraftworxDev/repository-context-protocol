@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewQueryEngine(t *testing.T) {
-	// Create temporary directory for testing
+	// Create temporary directory and initialize storage
 	tempDir, err := os.MkdirTemp("", "query_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -21,6 +21,11 @@ func TestNewQueryEngine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to initialize storage: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Errorf("Failed to close storage: %v", err)
+		}
+	})
 
 	engine := NewQueryEngine(storage)
 	if engine == nil {
@@ -294,6 +299,11 @@ func setupTestStorage(t *testing.T) (string, *HybridStorage) {
 	if err != nil {
 		t.Fatalf("Failed to initialize storage: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Errorf("Failed to close storage: %v", err)
+		}
+	})
 
 	return tempDir, storage
 }
