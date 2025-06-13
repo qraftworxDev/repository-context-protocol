@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -302,17 +303,9 @@ func TestInitCommand_CreateManifest(t *testing.T) {
 		t.Error("Expected manifest.json to have content")
 	}
 
-	// Should be valid JSON (basic check)
-	if !isValidJSON(content) {
-		t.Error("Expected manifest.json to contain valid JSON")
+	// Should be valid JSON - test by attempting to unmarshal
+	var jsonData interface{}
+	if err := json.Unmarshal(content, &jsonData); err != nil {
+		t.Errorf("Expected manifest.json to contain valid JSON, but got error: %v", err)
 	}
-}
-
-// Helper function to check if content is valid JSON
-func isValidJSON(content []byte) bool {
-	// Simple check - should start with { and end with }
-	if len(content) < 2 {
-		return false
-	}
-	return content[0] == '{' && content[len(content)-1] == '}'
 }
