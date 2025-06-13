@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -74,10 +75,24 @@ func TestInitCommand_CreateRepoContextDirectory(t *testing.T) {
 		t.Error("Expected .repocontext to be a directory")
 	}
 
-	// Check permissions (should be 0755)
-	expectedPerm := os.FileMode(0755)
-	if info.Mode().Perm() != expectedPerm {
-		t.Errorf("Expected .repocontext directory permissions %v, got %v", expectedPerm, info.Mode().Perm())
+	// Check permissions (should respect system umask)
+	// Get current umask to calculate expected permissions
+	currentUmask := syscall.Umask(0) // Get current umask
+	syscall.Umask(currentUmask)      // Restore the umask immediately
+
+	// Calculate expected permissions: intended permissions (0755) masked by umask
+	// Ensure umask is within valid range for uint32 conversion
+	if currentUmask < 0 || currentUmask > 0777 {
+		t.Fatalf("Invalid umask value: %d", currentUmask)
+	}
+
+	intendedPerm := os.FileMode(0755)
+	expectedPerm := intendedPerm &^ os.FileMode(uint32(currentUmask))
+
+	actualPerm := info.Mode().Perm()
+	if actualPerm != expectedPerm {
+		t.Errorf("Expected .repocontext directory permissions %v (0755 masked by umask %03o), got %v",
+			expectedPerm, currentUmask, actualPerm)
 	}
 }
 
