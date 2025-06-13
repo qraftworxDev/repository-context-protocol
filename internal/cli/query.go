@@ -144,14 +144,23 @@ func runQuery(flags *QueryFlags) error {
 		return err
 	}
 
+	// Initialize storage and query engine once
+	storage := index.NewHybridStorage(filepath.Join(flags.Path, ".repocontext"))
+	if err := storage.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize storage: %w", err)
+	}
+	defer storage.Close()
+
+	queryEngine := index.NewQueryEngine(storage)
+
 	// Execute search
-	result, err := executeSearch(flags)
+	result, err := executeSearch(queryEngine, flags)
 	if err != nil {
 		return err
 	}
 
-	// Output results
-	return outputResults(result, flags)
+	// Output results using the same query engine
+	return outputResults(result, queryEngine, flags)
 }
 
 func validateQueryInputs(flags *QueryFlags) error {
@@ -169,16 +178,7 @@ func validateQueryInputs(flags *QueryFlags) error {
 	return validateFlags(flags)
 }
 
-func executeSearch(flags *QueryFlags) (*index.SearchResult, error) {
-	// Initialize storage and query engine
-	storage := index.NewHybridStorage(filepath.Join(flags.Path, ".repocontext"))
-	if err := storage.Initialize(); err != nil {
-		return nil, fmt.Errorf("failed to initialize storage: %w", err)
-	}
-	defer storage.Close()
-
-	queryEngine := index.NewQueryEngine(storage)
-
+func executeSearch(queryEngine *index.QueryEngine, flags *QueryFlags) (*index.SearchResult, error) {
 	// Build query options
 	queryOptions := index.QueryOptions{
 		IncludeCallers: flags.IncludeCallers,
@@ -217,16 +217,7 @@ func executeSearch(flags *QueryFlags) (*index.SearchResult, error) {
 	return result, nil
 }
 
-func outputResults(result *index.SearchResult, flags *QueryFlags) error {
-	// Initialize storage for formatting (if needed)
-	storage := index.NewHybridStorage(filepath.Join(flags.Path, ".repocontext"))
-	if err := storage.Initialize(); err != nil {
-		return fmt.Errorf("failed to initialize storage for formatting: %w", err)
-	}
-	defer storage.Close()
-
-	queryEngine := index.NewQueryEngine(storage)
-
+func outputResults(result *index.SearchResult, queryEngine *index.QueryEngine, flags *QueryFlags) error {
 	// Format and output results
 	output, err := queryEngine.FormatResults(result, flags.Format)
 	if err != nil {
