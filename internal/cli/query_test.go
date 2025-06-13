@@ -73,25 +73,67 @@ func TestQueryCommand_Flags(t *testing.T) {
 func TestQueryCommand_FlagDefaults(t *testing.T) {
 	cmd := NewQueryCommand()
 
-	// Test default values
-	tests := []struct {
+	// Test string flag defaults
+	stringTests := []struct {
 		flag     string
 		expected string
 	}{
 		{"format", "text"},
-		{"depth", "2"},
-		{"max-tokens", "0"},
 		{"path", "."},
 	}
 
-	for _, test := range tests {
-		flag := cmd.Flags().Lookup(test.flag)
-		if flag == nil {
-			t.Errorf("Expected flag --%s to exist", test.flag)
+	for _, test := range stringTests {
+		actual, err := cmd.Flags().GetString(test.flag)
+		if err != nil {
+			t.Errorf("Failed to get string flag --%s: %v", test.flag, err)
 			continue
 		}
-		if flag.DefValue != test.expected {
-			t.Errorf("Expected flag --%s default value '%s', got '%s'", test.flag, test.expected, flag.DefValue)
+		if actual != test.expected {
+			t.Errorf("Expected flag --%s default value '%s', got '%s'", test.flag, test.expected, actual)
+		}
+	}
+
+	// Test integer flag defaults
+	intTests := []struct {
+		flag     string
+		expected int
+	}{
+		{"depth", 2}, // DefaultDepth
+		{"max-tokens", 0},
+	}
+
+	for _, test := range intTests {
+		actual, err := cmd.Flags().GetInt(test.flag)
+		if err != nil {
+			t.Errorf("Failed to get int flag --%s: %v", test.flag, err)
+			continue
+		}
+		if actual != test.expected {
+			t.Errorf("Expected flag --%s default value %d, got %d", test.flag, test.expected, actual)
+		}
+	}
+
+	// Test boolean flag defaults
+	boolTests := []struct {
+		flag     string
+		expected bool
+	}{
+		{"json", false},
+		{"verbose", false},
+		{"compact", false},
+		{"include-callers", false},
+		{"include-callees", false},
+		{"include-types", false},
+	}
+
+	for _, test := range boolTests {
+		actual, err := cmd.Flags().GetBool(test.flag)
+		if err != nil {
+			t.Errorf("Failed to get bool flag --%s: %v", test.flag, err)
+			continue
+		}
+		if actual != test.expected {
+			t.Errorf("Expected flag --%s default value %t, got %t", test.flag, test.expected, actual)
 		}
 	}
 }
