@@ -18,6 +18,14 @@ const (
 	EntityTypeVariable = "variable"
 	EntityTypeConstant = "constant"
 
+	// Entity kind constants
+	EntityKindStruct    = "struct"
+	EntityKindInterface = "interface"
+	EntityKindType      = "type"
+	EntityKindAlias     = "alias"
+	EntityKindEnum      = "enum"
+	EntityKindFunction  = "function"
+
 	// Token estimation constants
 	TokenOverhead   = 10
 	CallerTokens    = 20
@@ -52,6 +60,7 @@ type SearchResult struct {
 	TokenCount int                 `json:"token_count"`          // Estimated token count
 	Truncated  bool                `json:"truncated"`            // Whether results were truncated
 	ExecutedAt time.Time           `json:"executed_at"`          // When the query was executed
+	Options    *QueryOptions       `json:"-"`                    // Original query options (not serialized)
 }
 
 // SearchResultEntry combines index entry with chunk data
@@ -94,6 +103,7 @@ func (qe *QueryEngine) SearchByNameWithOptions(name string, options QueryOptions
 		Query:      name,
 		SearchType: "name",
 		ExecutedAt: time.Now(),
+		Options:    &options,
 	}
 
 	// Query the storage for matching entries
@@ -113,7 +123,7 @@ func (qe *QueryEngine) SearchByNameWithOptions(name string, options QueryOptions
 		// Find the first function entry to get call graph for
 		for _, entry := range result.Entries {
 			if entry.IndexEntry.Type == EntityTypeFunction {
-				callGraph, err := qe.GetCallGraph(entry.IndexEntry.Name, options.MaxDepth)
+				callGraph, err := qe.GetCallGraphWithOptions(entry.IndexEntry.Name, options)
 				if err == nil {
 					result.CallGraph = callGraph
 				}
@@ -134,6 +144,7 @@ func (qe *QueryEngine) SearchByType(entityType string) (*SearchResult, error) {
 		Query:      entityType,
 		SearchType: "type",
 		ExecutedAt: time.Now(),
+		Options:    &QueryOptions{}, // Default empty options
 	}
 
 	// Query the storage for matching entries
@@ -160,6 +171,7 @@ func (qe *QueryEngine) SearchByPattern(pattern string) (*SearchResult, error) {
 		Query:      pattern,
 		SearchType: "pattern",
 		ExecutedAt: time.Now(),
+		Options:    &QueryOptions{}, // Default empty options
 	}
 
 	// For now, implement simple prefix matching with *
@@ -189,16 +201,27 @@ func (qe *QueryEngine) SearchByPattern(pattern string) (*SearchResult, error) {
 
 // SearchInFile searches for all entities within a specific file
 func (qe *QueryEngine) SearchInFile(filePath string) (*SearchResult, error) {
+	return qe.SearchInFileWithOptions(filePath, QueryOptions{})
+}
+
+// SearchInFileWithOptions searches for all entities within a specific file with query options
+func (qe *QueryEngine) SearchInFileWithOptions(filePath string, options QueryOptions) (*SearchResult, error) {
 	result := &SearchResult{
 		Query:      filePath,
 		SearchType: "file",
 		ExecutedAt: time.Now(),
+		Options:    &options,
 	}
 
 	// Get all entity types and filter by file
 	var allEntries []SearchResultEntry
-	entityTypes := []string{EntityTypeFunction, EntityTypeType, EntityTypeVariable, EntityTypeConstant}
+	entityTypes := []string{EntityTypeFunction, EntityTypeVariable, EntityTypeConstant}
 
+	// For types, we need to search for all specific type kinds (struct, interface, etc.)
+	// since they are stored by their specific kind, not the generic "type"
+	typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum}
+
+	// Search for functions, variables, constants
 	for _, entityType := range entityTypes {
 		queryResults, err := qe.storage.QueryByType(entityType)
 		if err != nil {
@@ -213,58 +236,136 @@ func (qe *QueryEngine) SearchInFile(filePath string) (*SearchResult, error) {
 		}
 	}
 
+	// Search for all type kinds
+	for _, typeKind := range typeKinds {
+		queryResults, err := qe.storage.QueryByType(typeKind)
+		if err != nil {
+			continue
+		}
+
+		for _, qr := range queryResults {
+			// Match file path (handle both absolute and relative paths)
+			if qr.IndexEntry.File == filePath || filepath.Base(qr.IndexEntry.File) == filepath.Base(filePath) {
+				allEntries = append(allEntries, SearchResultEntry(qr))
+			}
+		}
+	}
+
 	result.Entries = allEntries
-	result.TokenCount = qe.EstimateTokens(result)
+
+	// Add call graph information if requested
+	if (options.IncludeCallers || options.IncludeCallees) && len(result.Entries) > 0 {
+		// Find the first function entry to get call graph for
+		for _, entry := range result.Entries {
+			if entry.IndexEntry.Type == EntityTypeFunction {
+				callGraph, err := qe.GetCallGraphWithOptions(entry.IndexEntry.Name, options)
+				if err == nil {
+					result.CallGraph = callGraph
+				}
+				break
+			}
+		}
+	}
+
+	// Apply token limits and estimate tokens
+	qe.applyTokenLimits(result, options.MaxTokens)
 
 	return result, nil
 }
 
-// GetCallGraph retrieves call graph information for a function
+// GetCallGraph retrieves the call graph for a function
 func (qe *QueryEngine) GetCallGraph(functionName string, maxDepth int) (*CallGraphInfo, error) {
-	if maxDepth <= 0 {
-		maxDepth = DefaultMaxDepth
+	// For backward compatibility, include both callers and callees
+	options := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: true,
+		MaxDepth:       maxDepth,
 	}
+	return qe.GetCallGraphWithOptions(functionName, options)
+}
 
+// GetCallGraphWithOptions retrieves the call graph for a function with selective inclusion
+func (qe *QueryEngine) GetCallGraphWithOptions(functionName string, options QueryOptions) (*CallGraphInfo, error) {
 	callGraph := &CallGraphInfo{
 		Function: functionName,
-		Depth:    maxDepth,
+		Callers:  []CallGraphEntry{},
+		Callees:  []CallGraphEntry{},
+		Depth:    options.MaxDepth,
 	}
 
-	// Get callers (functions that call this function)
-	callers, err := qe.storage.QueryCallsTo(functionName)
-	if err == nil {
-		for _, caller := range callers {
-			// Load chunk data for the caller
-			callerEntries, callerErr := qe.storage.QueryByName(caller.Caller)
-			if callerErr == nil && len(callerEntries) > 0 {
-				callGraph.Callers = append(callGraph.Callers, CallGraphEntry{
-					Function:  caller.Caller,
-					File:      caller.CallerFile,
-					Line:      caller.Line,
-					ChunkData: callerEntries[0].ChunkData,
-				})
-			}
+	// Only retrieve callers if requested
+	if options.IncludeCallers {
+		callers, err := qe.populateCallGraphEntries(functionName, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query callers: %w", err)
 		}
+		callGraph.Callers = callers
 	}
 
-	// Get callees (functions called by this function)
-	callees, err := qe.storage.QueryCallsFrom(functionName)
-	if err == nil {
-		for _, callee := range callees {
-			// Load chunk data for the callee
-			calleeEntries, calleeErr := qe.storage.QueryByName(callee.Callee)
-			if calleeErr == nil && len(calleeEntries) > 0 {
-				callGraph.Callees = append(callGraph.Callees, CallGraphEntry{
-					Function:  callee.Callee,
-					File:      callee.File,
-					Line:      callee.Line,
-					ChunkData: calleeEntries[0].ChunkData,
-				})
-			}
+	// Only retrieve callees if requested
+	if options.IncludeCallees {
+		callees, err := qe.populateCallGraphEntries(functionName, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query callees: %w", err)
 		}
+		callGraph.Callees = callees
 	}
 
 	return callGraph, nil
+}
+
+// populateCallGraphEntries is a helper method to eliminate code duplication
+// when retrieving either callers or callees
+func (qe *QueryEngine) populateCallGraphEntries(functionName string, isCallers bool) ([]CallGraphEntry, error) {
+	var entries []CallGraphEntry
+
+	if isCallers {
+		// Handle callers: functions that call this function
+		callers, err := qe.storage.QueryCallsTo(functionName)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, caller := range callers {
+			// Load chunk data for the caller
+			callerEntries, callerErr := qe.storage.QueryByName(caller.Caller)
+			var chunkData *models.SemanticChunk
+			if callerErr == nil && len(callerEntries) > 0 {
+				chunkData = callerEntries[0].ChunkData
+			}
+
+			entries = append(entries, CallGraphEntry{
+				Function:  caller.Caller,
+				File:      caller.CallerFile,
+				Line:      caller.Line,
+				ChunkData: chunkData,
+			})
+		}
+	} else {
+		// Handle callees: functions called by this function
+		callees, err := qe.storage.QueryCallsFrom(functionName)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, callee := range callees {
+			// Load chunk data for the callee
+			calleeEntries, calleeErr := qe.storage.QueryByName(callee.Callee)
+			var chunkData *models.SemanticChunk
+			if calleeErr == nil && len(calleeEntries) > 0 {
+				chunkData = calleeEntries[0].ChunkData
+			}
+
+			entries = append(entries, CallGraphEntry{
+				Function:  callee.Callee,
+				File:      callee.File,
+				Line:      callee.Line,
+				ChunkData: chunkData,
+			})
+		}
+	}
+
+	return entries, nil
 }
 
 // FormatResults formats query results in the specified format
@@ -380,16 +481,28 @@ func (qe *QueryEngine) formatAsText(result *SearchResult) []byte {
 
 	if result.CallGraph != nil {
 		output.WriteString("Call Graph:\n")
-		if len(result.CallGraph.Callers) > 0 {
+
+		// Show callers section if requested, even if empty
+		if result.Options != nil && result.Options.IncludeCallers {
 			output.WriteString("  Callers:\n")
-			for _, caller := range result.CallGraph.Callers {
-				output.WriteString(fmt.Sprintf("    - %s (%s:%d)\n", caller.Function, caller.File, caller.Line))
+			if len(result.CallGraph.Callers) > 0 {
+				for _, caller := range result.CallGraph.Callers {
+					output.WriteString(fmt.Sprintf("    - %s (%s:%d)\n", caller.Function, caller.File, caller.Line))
+				}
+			} else {
+				output.WriteString("    (none)\n")
 			}
 		}
-		if len(result.CallGraph.Callees) > 0 {
+
+		// Show callees section if requested, even if empty
+		if result.Options != nil && result.Options.IncludeCallees {
 			output.WriteString("  Callees:\n")
-			for _, callee := range result.CallGraph.Callees {
-				output.WriteString(fmt.Sprintf("    - %s (%s:%d)\n", callee.Function, callee.File, callee.Line))
+			if len(result.CallGraph.Callees) > 0 {
+				for _, callee := range result.CallGraph.Callees {
+					output.WriteString(fmt.Sprintf("    - %s (%s:%d)\n", callee.Function, callee.File, callee.Line))
+				}
+			} else {
+				output.WriteString("    (none)\n")
 			}
 		}
 	}

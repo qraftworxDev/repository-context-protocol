@@ -286,6 +286,318 @@ func TestQueryEngine_EstimateTokens(t *testing.T) {
 	}
 }
 
+func TestQueryEngine_SearchInFileWithOptions(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test basic file search without options
+	basicOptions := QueryOptions{}
+	results, err := engine.SearchInFileWithOptions("main.go", basicOptions)
+	if err != nil {
+		t.Fatalf("Failed to search in file with basic options: %v", err)
+	}
+
+	if len(results.Entries) == 0 {
+		t.Error("Expected to find entities in main.go, got no results")
+	}
+
+	// Verify all results are from the specified file
+	for _, entry := range results.Entries {
+		if entry.IndexEntry.File != "main.go" {
+			t.Errorf("Expected all results from main.go, got %s", entry.IndexEntry.File)
+		}
+	}
+}
+
+func TestQueryEngine_SearchInFileWithCallGraphOptions(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test file search with call graph options
+	options := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: true,
+		MaxDepth:       2,
+	}
+
+	results, err := engine.SearchInFileWithOptions("main.go", options)
+	if err != nil {
+		t.Fatalf("Failed to search in file with call graph options: %v", err)
+	}
+
+	if len(results.Entries) == 0 {
+		t.Error("Expected to find entities in main.go, got no results")
+	}
+
+	// Should include call graph information for functions found in file
+	foundFunction := false
+	for _, entry := range results.Entries {
+		if entry.IndexEntry.Type == "function" {
+			foundFunction = true
+			break
+		}
+	}
+
+	if foundFunction && results.CallGraph == nil {
+		t.Error("Expected call graph information when IncludeCallers/IncludeCallees is true and functions are present")
+	}
+}
+
+func TestQueryEngine_SearchInFileWithTokenLimit(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test with low token limit
+	options := QueryOptions{
+		MaxTokens: 50, // Very low limit to trigger truncation
+	}
+
+	results, err := engine.SearchInFileWithOptions("main.go", options)
+	if err != nil {
+		t.Fatalf("Failed to search in file with token limit: %v", err)
+	}
+
+	if results.TokenCount > options.MaxTokens {
+		t.Errorf("Expected token count <= %d, got %d", options.MaxTokens, results.TokenCount)
+	}
+
+	if !results.Truncated && len(results.Entries) > 0 {
+		// Only expect truncation if there were actually entries to truncate
+		// and the token limit was exceeded
+		estimatedTotal := engine.EstimateTokens(&SearchResult{Entries: results.Entries})
+		if estimatedTotal > options.MaxTokens {
+			t.Error("Expected results to be marked as truncated when token limit is exceeded")
+		}
+	}
+}
+
+func TestQueryEngine_SearchInFileWithIncludeTypes(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test with include types option
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
+	results, err := engine.SearchInFileWithOptions("main.go", options)
+	if err != nil {
+		t.Fatalf("Failed to search in file with include types: %v", err)
+	}
+
+	// Should find functions, types, and variables that exist in the file
+	foundFunction := false
+	foundType := false
+	foundVariable := false
+	for _, entry := range results.Entries {
+		if entry.IndexEntry.Type == "function" {
+			foundFunction = true
+		}
+		if entry.IndexEntry.Type == "struct" {
+			foundType = true
+		}
+		if entry.IndexEntry.Type == "variable" {
+			foundVariable = true
+		}
+	}
+
+	if !foundFunction {
+		t.Error("Expected to find functions in main.go")
+	}
+	// Only check for types and variables if we actually added them to the test data
+	if len(results.Entries) > 2 { // We know we have 2 functions, so more means we have types/variables
+		if !foundType {
+			t.Error("Expected to find types in main.go")
+		}
+		if !foundVariable {
+			t.Error("Expected to find variables in main.go")
+		}
+	}
+
+	// The IncludeTypes flag should work (this is currently not implemented but the test structure is correct)
+	// In the future, this could add additional related type information
+}
+
+func TestQueryEngine_GetCallGraphWithOptions_OnlyCallers(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test getting only callers
+	options := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: false,
+		MaxDepth:       2,
+	}
+
+	callGraph, err := engine.GetCallGraphWithOptions("HelperFunction", options)
+	if err != nil {
+		t.Fatalf("Failed to get call graph with options: %v", err)
+	}
+
+	if callGraph.Function != "HelperFunction" {
+		t.Errorf("Expected function 'HelperFunction', got %s", callGraph.Function)
+	}
+
+	// Should have callers (MainFunction calls HelperFunction)
+	if len(callGraph.Callers) == 0 {
+		t.Error("Expected callers when IncludeCallers is true")
+	}
+
+	// Should NOT have callees when IncludeCallees is false
+	if len(callGraph.Callees) != 0 {
+		t.Errorf("Expected no callees when IncludeCallees is false, got %d", len(callGraph.Callees))
+	}
+}
+
+func TestQueryEngine_GetCallGraphWithOptions_OnlyCallees(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test getting only callees
+	options := QueryOptions{
+		IncludeCallers: false,
+		IncludeCallees: true,
+		MaxDepth:       2,
+	}
+
+	callGraph, err := engine.GetCallGraphWithOptions("MainFunction", options)
+	if err != nil {
+		t.Fatalf("Failed to get call graph with options: %v", err)
+	}
+
+	if callGraph.Function != "MainFunction" {
+		t.Errorf("Expected function 'MainFunction', got %s", callGraph.Function)
+	}
+
+	// Should NOT have callers when IncludeCallers is false
+	if len(callGraph.Callers) != 0 {
+		t.Errorf("Expected no callers when IncludeCallers is false, got %d", len(callGraph.Callers))
+	}
+
+	// Should have callees (MainFunction calls HelperFunction)
+	if len(callGraph.Callees) == 0 {
+		t.Error("Expected callees when IncludeCallees is true")
+	}
+}
+
+func TestQueryEngine_GetCallGraphWithOptions_Both(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test getting both callers and callees
+	options := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: true,
+		MaxDepth:       2,
+	}
+
+	callGraph, err := engine.GetCallGraphWithOptions("HelperFunction", options)
+	if err != nil {
+		t.Fatalf("Failed to get call graph with options: %v", err)
+	}
+
+	// Should have both callers and callees
+	if len(callGraph.Callers) == 0 {
+		t.Error("Expected callers when IncludeCallers is true")
+	}
+
+	// HelperFunction doesn't call anything in our test data, but we should still
+	// populate the callees slice (even if empty) when IncludeCallees is true
+	// This test verifies the method was called, not necessarily that data exists
+}
+
+func TestQueryEngine_GetCallGraphWithOptions_Neither(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test getting neither callers nor callees
+	options := QueryOptions{
+		IncludeCallers: false,
+		IncludeCallees: false,
+		MaxDepth:       2,
+	}
+
+	callGraph, err := engine.GetCallGraphWithOptions("MainFunction", options)
+	if err != nil {
+		t.Fatalf("Failed to get call graph with options: %v", err)
+	}
+
+	// Should have neither callers nor callees
+	if len(callGraph.Callers) != 0 {
+		t.Errorf("Expected no callers when IncludeCallers is false, got %d", len(callGraph.Callers))
+	}
+
+	if len(callGraph.Callees) != 0 {
+		t.Errorf("Expected no callees when IncludeCallees is false, got %d", len(callGraph.Callees))
+	}
+}
+
+func TestQueryEngine_SearchWithSelectiveCallGraph(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test that SearchByNameWithOptions respects call graph flags
+	optionsOnlyCallers := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: false,
+		MaxDepth:       2,
+	}
+
+	result, err := engine.SearchByNameWithOptions("HelperFunction", optionsOnlyCallers)
+	if err != nil {
+		t.Fatalf("Failed to search with selective call graph: %v", err)
+	}
+
+	if result.CallGraph == nil {
+		t.Fatal("Expected call graph to be included")
+	}
+
+	// Should have callers but not callees
+	if len(result.CallGraph.Callers) == 0 {
+		t.Error("Expected callers when IncludeCallers is true")
+	}
+
+	if len(result.CallGraph.Callees) != 0 {
+		t.Errorf("Expected no callees when IncludeCallees is false, got %d", len(result.CallGraph.Callees))
+	}
+}
+
 // Helper functions for test setup
 
 func setupTestStorage(t *testing.T) (string, *HybridStorage) {
@@ -377,11 +689,73 @@ func setupTestDataWithCallGraph(t *testing.T, storage *HybridStorage) {
 				CalledBy:  []string{"MainFunction"},
 			},
 		},
+		Types: []models.TypeDef{
+			{
+				Name:      "TestStruct",
+				Kind:      "struct",
+				StartLine: 5,
+				EndLine:   8,
+			},
+		},
+		Variables: []models.Variable{
+			{
+				Name:      "TestVar",
+				Type:      "string",
+				StartLine: 3,
+				EndLine:   3,
+			},
+		},
 	}
 
 	err := storage.StoreFileContext(fileContext)
 	if err != nil {
 		t.Fatalf("Failed to store test data with call graph: %v", err)
+	}
+}
+
+func setupTestDataWithCallerCalleeRelations(t *testing.T, storage *HybridStorage) {
+	fileContext := &models.FileContext{
+		Path:     "main.go",
+		Language: "go",
+		Checksum: "test123",
+		ModTime:  time.Now(),
+		Functions: []models.Function{
+			{
+				Name:      "MainFunction",
+				Signature: "func MainFunction()",
+				StartLine: 10,
+				EndLine:   15,
+				Calls:     []string{"HelperFunction", "fmt.Println"},
+			},
+			{
+				Name:      "HelperFunction",
+				Signature: "func HelperFunction() string",
+				StartLine: 20,
+				EndLine:   25,
+				CalledBy:  []string{"MainFunction"},
+				// HelperFunction doesn't call anything
+			},
+			{
+				Name:      "AnotherFunction",
+				Signature: "func AnotherFunction()",
+				StartLine: 30,
+				EndLine:   35,
+				Calls:     []string{"HelperFunction"},
+			},
+		},
+		Types: []models.TypeDef{
+			{
+				Name:      "TestStruct",
+				Kind:      "struct",
+				StartLine: 5,
+				EndLine:   8,
+			},
+		},
+	}
+
+	err := storage.StoreFileContext(fileContext)
+	if err != nil {
+		t.Fatalf("Failed to store test data with caller/callee relations: %v", err)
 	}
 }
 

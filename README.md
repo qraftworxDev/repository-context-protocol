@@ -241,3 +241,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **RepoContext** - Semantic code analysis for the AI era 🤖
+
+### Todo:
+1. precommit integration
+1. mcp server creation
+1. testing with LLM
+1. extend to support Python
