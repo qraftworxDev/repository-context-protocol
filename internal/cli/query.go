@@ -100,7 +100,7 @@ Examples:
   # Pattern search
   repocontext query --search "Test*" --compact`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runQuery(flags)
+			return runQuery(flags, cmd)
 		},
 	}
 }
@@ -133,7 +133,7 @@ func addQueryFlags(cmd *cobra.Command, flags *QueryFlags) {
 }
 
 // runQuery executes the query command
-func runQuery(flags *QueryFlags) error {
+func runQuery(flags *QueryFlags, cmd *cobra.Command) error {
 	// Handle JSON flag first, before validation
 	if flags.JSON {
 		flags.Format = "json"
@@ -160,7 +160,7 @@ func runQuery(flags *QueryFlags) error {
 	}
 
 	// Output results using the same query engine
-	return outputResults(result, queryEngine, flags)
+	return outputResults(result, queryEngine, flags, cmd)
 }
 
 func validateQueryInputs(flags *QueryFlags) error {
@@ -201,7 +201,7 @@ func executeSearch(queryEngine *index.QueryEngine, flags *QueryFlags) (*index.Se
 	case flags.Variable != "":
 		result, err = queryEngine.SearchByNameWithOptions(flags.Variable, queryOptions)
 	case flags.File != "":
-		result, err = queryEngine.SearchInFile(flags.File)
+		result, err = queryEngine.SearchInFileWithOptions(flags.File, queryOptions)
 	case flags.Search != "":
 		result, err = queryEngine.SearchByPattern(flags.Search)
 	case flags.EntityType != "":
@@ -217,14 +217,14 @@ func executeSearch(queryEngine *index.QueryEngine, flags *QueryFlags) (*index.Se
 	return result, nil
 }
 
-func outputResults(result *index.SearchResult, queryEngine *index.QueryEngine, flags *QueryFlags) error {
+func outputResults(result *index.SearchResult, queryEngine *index.QueryEngine, flags *QueryFlags, cmd *cobra.Command) error {
 	// Format and output results
 	output, err := queryEngine.FormatResults(result, flags.Format)
 	if err != nil {
 		return fmt.Errorf("failed to format results: %w", err)
 	}
 
-	fmt.Print(string(output))
+	cmd.Print(string(output))
 	return nil
 }
 
