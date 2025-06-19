@@ -247,3 +247,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 1. mcp server creation
 1. testing with LLM
 1. extend to support Python
+
+# Bugs
+1. repocontext query --search "main*" --include-callers --json
+    - callers: null i.s.o. callers: []
+    - callees: [] i.s.o. omitted if empty
+1. query --entity-type function --include-callers --include-callees
+    - callers: (none)
+    - callees: populated
+1. repocontext query --entity-type function --include-types
+    - doesn't differ from "repocontext query --entity-type function"

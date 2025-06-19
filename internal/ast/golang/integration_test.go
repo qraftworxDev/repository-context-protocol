@@ -89,8 +89,8 @@ func TestGoParser_IntegrationTest(t *testing.T) {
 		if len(implType.Fields) != 2 {
 			t.Errorf("Expected InMemoryUserService to have 2 fields, got %d", len(implType.Fields))
 		}
-		if len(implType.Methods) != 4 {
-			t.Errorf("Expected InMemoryUserService to have 4 methods, got %d", len(implType.Methods))
+		if len(implType.Methods) != 6 {
+			t.Errorf("Expected InMemoryUserService to have 6 methods, got %d", len(implType.Methods))
 		}
 	}
 

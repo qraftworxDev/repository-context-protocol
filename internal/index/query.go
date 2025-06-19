@@ -165,6 +165,47 @@ func (qe *QueryEngine) SearchByType(entityType string) (*SearchResult, error) {
 	return result, nil
 }
 
+// SearchByTypeWithOptions searches for all entities of a specific type with query options
+func (qe *QueryEngine) SearchByTypeWithOptions(entityType string, options QueryOptions) (*SearchResult, error) {
+	result := &SearchResult{
+		Query:      entityType,
+		SearchType: "type",
+		ExecutedAt: time.Now(),
+		Options:    &options,
+	}
+
+	// Query the storage for matching entries
+	queryResults, err := qe.storage.QueryByType(entityType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query by type: %w", err)
+	}
+
+	// Convert storage results to query result entries
+	result.Entries = make([]SearchResultEntry, len(queryResults))
+	for i, qr := range queryResults {
+		result.Entries[i] = SearchResultEntry(qr)
+	}
+
+	// Add call graph information if requested and functions are found
+	if (options.IncludeCallers || options.IncludeCallees) && entityType == EntityTypeFunction && len(result.Entries) > 0 {
+		// Get call graph for the first function found
+		for _, entry := range result.Entries {
+			if entry.IndexEntry.Type == EntityTypeFunction {
+				callGraph, err := qe.GetCallGraphWithOptions(entry.IndexEntry.Name, options)
+				if err == nil {
+					result.CallGraph = callGraph
+				}
+				break
+			}
+		}
+	}
+
+	// Apply token limits and estimate tokens
+	qe.applyTokenLimits(result, options.MaxTokens)
+
+	return result, nil
+}
+
 // SearchByPattern searches for entities matching a pattern (supports wildcards)
 func (qe *QueryEngine) SearchByPattern(pattern string) (*SearchResult, error) {
 	result := &SearchResult{
@@ -195,6 +236,56 @@ func (qe *QueryEngine) SearchByPattern(pattern string) (*SearchResult, error) {
 
 	result.Entries = allEntries
 	result.TokenCount = qe.EstimateTokens(result)
+
+	return result, nil
+}
+
+// SearchByPatternWithOptions searches for entities matching a pattern with query options
+func (qe *QueryEngine) SearchByPatternWithOptions(pattern string, options QueryOptions) (*SearchResult, error) {
+	result := &SearchResult{
+		Query:      pattern,
+		SearchType: "pattern",
+		ExecutedAt: time.Now(),
+		Options:    &options,
+	}
+
+	// For now, implement simple prefix matching with *
+	// In a full implementation, this could use more sophisticated pattern matching
+	var allEntries []SearchResultEntry
+
+	// Get all entity types and search each
+	entityTypes := []string{EntityTypeFunction, EntityTypeType, EntityTypeVariable, EntityTypeConstant}
+	for _, entityType := range entityTypes {
+		queryResults, err := qe.storage.QueryByType(entityType)
+		if err != nil {
+			continue // Skip errors and continue with other types
+		}
+
+		for _, qr := range queryResults {
+			if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
+				allEntries = append(allEntries, SearchResultEntry(qr))
+			}
+		}
+	}
+
+	result.Entries = allEntries
+
+	// Add call graph information if requested and functions are found
+	if (options.IncludeCallers || options.IncludeCallees) && len(result.Entries) > 0 {
+		// Find the first function entry to get call graph for
+		for _, entry := range result.Entries {
+			if entry.IndexEntry.Type == EntityTypeFunction {
+				callGraph, err := qe.GetCallGraphWithOptions(entry.IndexEntry.Name, options)
+				if err == nil {
+					result.CallGraph = callGraph
+				}
+				break
+			}
+		}
+	}
+
+	// Apply token limits and estimate tokens
+	qe.applyTokenLimits(result, options.MaxTokens)
 
 	return result, nil
 }
@@ -293,9 +384,15 @@ func (qe *QueryEngine) GetCallGraphWithOptions(functionName string, options Quer
 		Depth:    options.MaxDepth,
 	}
 
+	// Use default depth of 1 if not specified or invalid
+	maxDepth := options.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = DefaultMaxDepth
+	}
+
 	// Only retrieve callers if requested
 	if options.IncludeCallers {
-		callers, err := qe.populateCallGraphEntries(functionName, true)
+		callers, err := qe.populateCallGraphEntriesWithDepth(functionName, true, maxDepth, 0, make(map[string]bool))
 		if err != nil {
 			return nil, fmt.Errorf("failed to query callers: %w", err)
 		}
@@ -304,7 +401,7 @@ func (qe *QueryEngine) GetCallGraphWithOptions(functionName string, options Quer
 
 	// Only retrieve callees if requested
 	if options.IncludeCallees {
-		callees, err := qe.populateCallGraphEntries(functionName, false)
+		callees, err := qe.populateCallGraphEntriesWithDepth(functionName, false, maxDepth, 0, make(map[string]bool))
 		if err != nil {
 			return nil, fmt.Errorf("failed to query callees: %w", err)
 		}
@@ -314,10 +411,25 @@ func (qe *QueryEngine) GetCallGraphWithOptions(functionName string, options Quer
 	return callGraph, nil
 }
 
-// populateCallGraphEntries is a helper method to eliminate code duplication
-// when retrieving either callers or callees
-func (qe *QueryEngine) populateCallGraphEntries(functionName string, isCallers bool) ([]CallGraphEntry, error) {
+// populateCallGraphEntriesWithDepth recursively populates call graph entries up to maxDepth
+func (qe *QueryEngine) populateCallGraphEntriesWithDepth(
+	functionName string,
+	isCallers bool,
+	maxDepth, currentDepth int,
+	visited map[string]bool,
+) ([]CallGraphEntry, error) {
 	var entries []CallGraphEntry
+
+	// Stop if we've reached max depth
+	if currentDepth >= maxDepth {
+		return entries, nil
+	}
+
+	// Prevent infinite loops in circular call graphs
+	if visited[functionName] {
+		return entries, nil
+	}
+	visited[functionName] = true
 
 	if isCallers {
 		// Handle callers: functions that call this function
@@ -327,19 +439,16 @@ func (qe *QueryEngine) populateCallGraphEntries(functionName string, isCallers b
 		}
 
 		for _, caller := range callers {
-			// Load chunk data for the caller
-			callerEntries, callerErr := qe.storage.QueryByName(caller.Caller)
-			var chunkData *models.SemanticChunk
-			if callerErr == nil && len(callerEntries) > 0 {
-				chunkData = callerEntries[0].ChunkData
-			}
+			entry := qe.createCallGraphEntry(caller.Caller, caller.CallerFile, caller.Line)
+			entries = append(entries, entry)
 
-			entries = append(entries, CallGraphEntry{
-				Function:  caller.Caller,
-				File:      caller.CallerFile,
-				Line:      caller.Line,
-				ChunkData: chunkData,
-			})
+			// Recursively get callers of this caller
+			if currentDepth+1 < maxDepth {
+				subEntries, err := qe.populateCallGraphEntriesWithDepth(caller.Caller, isCallers, maxDepth, currentDepth+1, visited)
+				if err == nil {
+					entries = append(entries, subEntries...)
+				}
+			}
 		}
 	} else {
 		// Handle callees: functions called by this function
@@ -349,23 +458,40 @@ func (qe *QueryEngine) populateCallGraphEntries(functionName string, isCallers b
 		}
 
 		for _, callee := range callees {
-			// Load chunk data for the callee
-			calleeEntries, calleeErr := qe.storage.QueryByName(callee.Callee)
-			var chunkData *models.SemanticChunk
-			if calleeErr == nil && len(calleeEntries) > 0 {
-				chunkData = calleeEntries[0].ChunkData
-			}
+			entry := qe.createCallGraphEntry(callee.Callee, callee.File, callee.Line)
+			entries = append(entries, entry)
 
-			entries = append(entries, CallGraphEntry{
-				Function:  callee.Callee,
-				File:      callee.File,
-				Line:      callee.Line,
-				ChunkData: chunkData,
-			})
+			// Recursively get callees of this callee
+			if currentDepth+1 < maxDepth {
+				subEntries, err := qe.populateCallGraphEntriesWithDepth(callee.Callee, isCallers, maxDepth, currentDepth+1, visited)
+				if err == nil {
+					entries = append(entries, subEntries...)
+				}
+			}
 		}
 	}
 
+	// Remove this function from visited set for other branches
+	delete(visited, functionName)
+
 	return entries, nil
+}
+
+// createCallGraphEntry is a helper function to create a CallGraphEntry with chunk data
+func (qe *QueryEngine) createCallGraphEntry(functionName, file string, line int) CallGraphEntry {
+	// Load chunk data for the function
+	functionEntries, err := qe.storage.QueryByName(functionName)
+	var chunkData *models.SemanticChunk
+	if err == nil && len(functionEntries) > 0 {
+		chunkData = functionEntries[0].ChunkData
+	}
+
+	return CallGraphEntry{
+		Function:  functionName,
+		File:      file,
+		Line:      line,
+		ChunkData: chunkData,
+	}
 }
 
 // FormatResults formats query results in the specified format
