@@ -450,6 +450,78 @@ func TestQueryCommand_JSONOutputCallGraphFlags(t *testing.T) {
 	}
 }
 
+func TestQueryCommand_SearchByPatternWithOptions(t *testing.T) {
+	runQueryTest(t, testQueryWithFlags{
+		searchType:   "search",
+		searchValue:  "Test*",
+		useCallGraph: true,
+		flags: map[string]string{
+			"include-callers": "true",
+			"include-callees": "true",
+			"max-tokens":      "1000",
+		},
+	})
+}
+
+func TestQueryCommand_SearchByEntityTypeWithOptions(t *testing.T) {
+	runQueryTest(t, testQueryWithFlags{
+		searchType:   "entity-type",
+		searchValue:  "function",
+		useCallGraph: true,
+		flags: map[string]string{
+			"include-callers": "true",
+			"include-callees": "true",
+			"max-tokens":      "500",
+		},
+	})
+}
+
+func TestQueryCommand_SearchByPatternWithTokenLimit(t *testing.T) {
+	runQueryTest(t, testQueryWithFlags{
+		searchType:   "search",
+		searchValue:  "Test*",
+		useCallGraph: true,
+		flags: map[string]string{
+			"max-tokens": "50",
+			"json":       "true",
+		},
+	})
+}
+
+func TestQueryCommand_SearchByEntityTypeWithTokenLimit(t *testing.T) {
+	runQueryTest(t, testQueryWithFlags{
+		searchType:   "entity-type",
+		searchValue:  "function",
+		useCallGraph: true,
+		flags: map[string]string{
+			"max-tokens": "30",
+			"json":       "true",
+		},
+	})
+}
+
+func TestQueryCommand_SearchByPatternWithIncludeTypes(t *testing.T) {
+	runQueryTest(t, testQueryWithFlags{
+		searchType:   "search",
+		searchValue:  "Test*",
+		useCallGraph: true,
+		flags: map[string]string{
+			"include-types": "true",
+		},
+	})
+}
+
+func TestQueryCommand_SearchByEntityTypeWithIncludeTypes(t *testing.T) {
+	runQueryTest(t, testQueryWithFlags{
+		searchType:   "entity-type",
+		searchValue:  "function",
+		useCallGraph: true,
+		flags: map[string]string{
+			"include-types": "true",
+		},
+	})
+}
+
 // Helper functions
 
 func runSearchTest(t *testing.T, flagName, flagValue string, setupFunc func(*testing.T, *index.HybridStorage)) {

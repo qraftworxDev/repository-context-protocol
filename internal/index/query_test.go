@@ -369,18 +369,8 @@ func TestQueryEngine_SearchInFileWithTokenLimit(t *testing.T) {
 		t.Fatalf("Failed to search in file with token limit: %v", err)
 	}
 
-	if results.TokenCount > options.MaxTokens {
-		t.Errorf("Expected token count <= %d, got %d", options.MaxTokens, results.TokenCount)
-	}
-
-	if !results.Truncated && len(results.Entries) > 0 {
-		// Only expect truncation if there were actually entries to truncate
-		// and the token limit was exceeded
-		estimatedTotal := engine.EstimateTokens(&SearchResult{Entries: results.Entries})
-		if estimatedTotal > options.MaxTokens {
-			t.Error("Expected results to be marked as truncated when token limit is exceeded")
-		}
-	}
+	// Use helper function to validate token limits
+	validateTokenLimits(t, engine, results, options.MaxTokens)
 }
 
 func TestQueryEngine_SearchInFileWithIncludeTypes(t *testing.T) {
@@ -598,6 +588,227 @@ func TestQueryEngine_SearchWithSelectiveCallGraph(t *testing.T) {
 	}
 }
 
+func TestQueryEngine_SearchByPatternWithOptions(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test pattern search with query options
+	options := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: true,
+		MaxDepth:       2,
+		MaxTokens:      1000,
+	}
+
+	results, err := engine.SearchByPatternWithOptions("Test*", options)
+	if err != nil {
+		t.Fatalf("Failed to search by pattern with options: %v", err)
+	}
+
+	if len(results.Entries) == 0 {
+		t.Error("Expected to find entities matching Test*, got no results")
+	}
+
+	// Verify all results match pattern
+	for _, entry := range results.Entries {
+		if !matchesPattern(entry.IndexEntry.Name, "Test*") {
+			t.Errorf("Expected result %s to match pattern Test*", entry.IndexEntry.Name)
+		}
+	}
+
+	// Should include call graph information for functions
+	foundFunction := false
+	for _, entry := range results.Entries {
+		if entry.IndexEntry.Type == "function" {
+			foundFunction = true
+			break
+		}
+	}
+
+	if foundFunction && results.CallGraph == nil {
+		t.Error("Expected call graph information when IncludeCallers/IncludeCallees is true and functions are present")
+	}
+
+	// Check that token count is reasonable and within limits
+	if results.TokenCount > options.MaxTokens {
+		t.Errorf("Expected token count <= %d, got %d", options.MaxTokens, results.TokenCount)
+	}
+}
+
+func TestQueryEngine_SearchByTypeWithOptions(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test type search with query options
+	options := QueryOptions{
+		IncludeCallers: true,
+		IncludeCallees: true,
+		MaxDepth:       2,
+		MaxTokens:      500,
+	}
+
+	results, err := engine.SearchByTypeWithOptions("function", options)
+	if err != nil {
+		t.Fatalf("Failed to search by type with options: %v", err)
+	}
+
+	if len(results.Entries) == 0 {
+		t.Error("Expected to find functions, got no results")
+	}
+
+	// Verify all results are functions
+	for _, entry := range results.Entries {
+		if entry.IndexEntry.Type != "function" {
+			t.Errorf("Expected all results to be functions, got %s", entry.IndexEntry.Type)
+		}
+	}
+
+	// Should include call graph information for functions
+	if results.CallGraph == nil {
+		t.Error("Expected call graph information when IncludeCallers/IncludeCallees is true and functions are present")
+	}
+
+	// Check that token count is reasonable and within limits
+	if results.TokenCount > options.MaxTokens {
+		t.Errorf("Expected token count <= %d, got %d", options.MaxTokens, results.TokenCount)
+	}
+}
+
+func TestQueryEngine_SearchByPatternWithTokenLimit(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test with very low token limit to force truncation
+	options := QueryOptions{
+		MaxTokens: 50, // Very low limit
+	}
+
+	results, err := engine.SearchByPatternWithOptions("Test*", options)
+	if err != nil {
+		t.Fatalf("Failed to search by pattern with token limit: %v", err)
+	}
+
+	if results.TokenCount > options.MaxTokens {
+		t.Errorf("Expected token count <= %d, got %d", options.MaxTokens, results.TokenCount)
+	}
+
+	// Test that token limits are applied correctly
+	// The specific truncation behavior depends on the actual data size
+	t.Logf("Token count: %d, Entries: %d, Truncated: %t", results.TokenCount, len(results.Entries), results.Truncated)
+}
+
+func TestQueryEngine_SearchByTypeWithTokenLimit(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test with very low token limit to force truncation
+	options := QueryOptions{
+		MaxTokens: 30, // Very low limit
+	}
+
+	results, err := engine.SearchByTypeWithOptions("function", options)
+	if err != nil {
+		t.Fatalf("Failed to search by type with token limit: %v", err)
+	}
+
+	// Use helper function to validate token limits
+	validateTokenLimits(t, engine, results, options.MaxTokens)
+}
+
+func TestQueryEngine_CallGraphMaxDepthActuallyUsed(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	// Set up a deeper call chain: FuncA -> FuncB -> FuncC -> FuncD
+	setupTestDataWithDeepCallChain(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test with depth 1 - should only get direct callees
+	options1 := QueryOptions{
+		IncludeCallees: true,
+		MaxDepth:       1,
+	}
+
+	result1, err := engine.SearchByNameWithOptions("FuncA", options1)
+	if err != nil {
+		t.Fatalf("Failed to search with depth 1: %v", err)
+	}
+
+	if result1.CallGraph == nil {
+		t.Fatal("Expected call graph to be included")
+	}
+
+	// With depth 1, should only see FuncB (direct callee)
+	if len(result1.CallGraph.Callees) != 1 {
+		t.Errorf("Expected 1 callee with depth 1, got %d", len(result1.CallGraph.Callees))
+	}
+
+	if len(result1.CallGraph.Callees) > 0 && result1.CallGraph.Callees[0].Function != "FuncB" {
+		t.Errorf("Expected direct callee to be FuncB, got %s", result1.CallGraph.Callees[0].Function)
+	}
+
+	// Test with depth 2 - should get FuncB and FuncC
+	options2 := QueryOptions{
+		IncludeCallees: true,
+		MaxDepth:       2,
+	}
+
+	result2, err := engine.SearchByNameWithOptions("FuncA", options2)
+	if err != nil {
+		t.Fatalf("Failed to search with depth 2: %v", err)
+	}
+
+	if result2.CallGraph == nil {
+		t.Fatal("Expected call graph to be included")
+	}
+
+	// With depth 2, should see FuncB and FuncC
+	if len(result2.CallGraph.Callees) < 2 {
+		t.Errorf("Expected at least 2 callees with depth 2, got %d", len(result2.CallGraph.Callees))
+	}
+
+	// Test with depth 3 - should get FuncB, FuncC, and FuncD
+	options3 := QueryOptions{
+		IncludeCallees: true,
+		MaxDepth:       3,
+	}
+
+	result3, err := engine.SearchByNameWithOptions("FuncA", options3)
+	if err != nil {
+		t.Fatalf("Failed to search with depth 3: %v", err)
+	}
+
+	if result3.CallGraph == nil {
+		t.Fatal("Expected call graph to be included")
+	}
+
+	// With depth 3, should see FuncB, FuncC, and FuncD
+	if len(result3.CallGraph.Callees) < 3 {
+		t.Errorf("Expected at least 3 callees with depth 3, got %d", len(result3.CallGraph.Callees))
+	}
+
+	t.Logf("Depth 1: %d callees", len(result1.CallGraph.Callees))
+	t.Logf("Depth 2: %d callees", len(result2.CallGraph.Callees))
+	t.Logf("Depth 3: %d callees", len(result3.CallGraph.Callees))
+}
+
 // Helper functions for test setup
 
 func setupTestStorage(t *testing.T) (string, *HybridStorage) {
@@ -756,6 +967,69 @@ func setupTestDataWithCallerCalleeRelations(t *testing.T, storage *HybridStorage
 	err := storage.StoreFileContext(fileContext)
 	if err != nil {
 		t.Fatalf("Failed to store test data with caller/callee relations: %v", err)
+	}
+}
+
+func setupTestDataWithDeepCallChain(t *testing.T, storage *HybridStorage) {
+	// Create a deep call chain: FuncA -> FuncB -> FuncC -> FuncD
+	fileContext := &models.FileContext{
+		Path:     "chain.go",
+		Language: "go",
+		Checksum: "test456",
+		ModTime:  time.Now(),
+		Functions: []models.Function{
+			{
+				Name:      "FuncA",
+				Signature: "func FuncA()",
+				StartLine: 10,
+				EndLine:   15,
+				Calls:     []string{"FuncB"},
+			},
+			{
+				Name:      "FuncB",
+				Signature: "func FuncB()",
+				StartLine: 20,
+				EndLine:   25,
+				Calls:     []string{"FuncC"},
+				CalledBy:  []string{"FuncA"},
+			},
+			{
+				Name:      "FuncC",
+				Signature: "func FuncC()",
+				StartLine: 30,
+				EndLine:   35,
+				Calls:     []string{"FuncD"},
+				CalledBy:  []string{"FuncB"},
+			},
+			{
+				Name:      "FuncD",
+				Signature: "func FuncD()",
+				StartLine: 40,
+				EndLine:   45,
+				CalledBy:  []string{"FuncC"},
+			},
+		},
+	}
+
+	err := storage.StoreFileContext(fileContext)
+	if err != nil {
+		t.Fatalf("Failed to store deep call chain test data: %v", err)
+	}
+}
+
+// validateTokenLimits is a helper function to validate token limit behavior in tests
+func validateTokenLimits(t *testing.T, engine *QueryEngine, results *SearchResult, maxTokens int) {
+	if results.TokenCount > maxTokens {
+		t.Errorf("Expected token count <= %d, got %d", maxTokens, results.TokenCount)
+	}
+
+	if !results.Truncated && len(results.Entries) > 0 {
+		// Only expect truncation if there were actually entries to truncate
+		// and the token limit was exceeded
+		estimatedTotal := engine.EstimateTokens(&SearchResult{Entries: results.Entries})
+		if estimatedTotal > maxTokens {
+			t.Error("Expected results to be marked as truncated when token limit is exceeded")
+		}
 	}
 }
 

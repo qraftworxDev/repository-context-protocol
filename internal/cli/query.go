@@ -203,9 +203,9 @@ func executeSearch(queryEngine *index.QueryEngine, flags *QueryFlags) (*index.Se
 	case flags.File != "":
 		result, err = queryEngine.SearchInFileWithOptions(flags.File, queryOptions)
 	case flags.Search != "":
-		result, err = queryEngine.SearchByPattern(flags.Search)
+		result, err = queryEngine.SearchByPatternWithOptions(flags.Search, queryOptions)
 	case flags.EntityType != "":
-		result, err = queryEngine.SearchByType(flags.EntityType)
+		result, err = queryEngine.SearchByTypeWithOptions(flags.EntityType, queryOptions)
 	default:
 		return nil, fmt.Errorf("no search criteria specified")
 	}
