@@ -308,3 +308,72 @@ func NewComplexType(id int) *ComplexType {
 		Children: make([]*ComplexType, 0),
 	}
 }
+
+// Test functions for generateRandomBytes and GenerateID
+
+// TestGenerateRandomBytes tests the generateRandomBytes function
+func TestGenerateRandomBytes() {
+	fmt.Println("Testing generateRandomBytes...")
+
+	// Test with different lengths
+	testCases := []int{0, 1, 8, 16, 32, 64}
+
+	for _, length := range testCases {
+		bytes := generateRandomBytes(length)
+		if len(bytes) != length {
+			fmt.Printf("FAIL: generateRandomBytes(%d) returned %d bytes, expected %d\n", length, len(bytes), length)
+			return
+		}
+		fmt.Printf("PASS: generateRandomBytes(%d) returned %d bytes\n", length, len(bytes))
+	}
+
+	// Test that different calls produce different results (for non-zero lengths)
+	if len(testCases) > 1 {
+		bytes1 := generateRandomBytes(8)
+		bytes2 := generateRandomBytes(8)
+
+		// Check they're different (very high probability)
+		same := true
+		for i := 0; i < len(bytes1); i++ {
+			if bytes1[i] != bytes2[i] {
+				same = false
+				break
+			}
+		}
+
+		if same {
+			fmt.Println("WARN: generateRandomBytes(8) produced identical results (possible but unlikely)")
+		} else {
+			fmt.Println("PASS: generateRandomBytes(8) produced different results")
+		}
+	}
+}
+
+// TestGenerateID tests the GenerateID function
+func TestGenerateID() {
+	fmt.Println("Testing GenerateID...")
+
+	// Test that GenerateID returns non-empty string
+	id1 := GenerateID()
+	if id1 == "" {
+		fmt.Println("FAIL: GenerateID() returned empty string")
+		return
+	}
+	fmt.Printf("PASS: GenerateID() returned: %s\n", id1)
+
+	// Test that different calls produce different IDs
+	id2 := GenerateID()
+	if id1 == id2 {
+		fmt.Println("WARN: GenerateID() produced identical results (possible but unlikely)")
+	} else {
+		fmt.Println("PASS: GenerateID() produced different results")
+	}
+
+	// Test expected length (8 bytes = 16 hex characters)
+	expectedLength := 16
+	if len(id1) != expectedLength {
+		fmt.Printf("FAIL: GenerateID() returned %d characters, expected %d\n", len(id1), expectedLength)
+		return
+	}
+	fmt.Printf("PASS: GenerateID() returned expected length: %d\n", len(id1))
+}

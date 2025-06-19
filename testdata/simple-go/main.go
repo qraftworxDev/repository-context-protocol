@@ -126,6 +126,11 @@ func main() {
 	fmt.Println("\n=== Utility Functions Demo ===")
 	demoUtilityFunctions()
 
+	// Run our new tests
+	fmt.Println("\n=== Random Bytes Tests ===")
+	TestGenerateRandomBytes()
+	TestGenerateID()
+
 	// Cleanup
 	CleanupServices()
 	CleanupUtilities()

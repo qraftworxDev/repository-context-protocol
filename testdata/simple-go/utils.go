@@ -106,7 +106,9 @@ func GenerateID() string {
 // generateRandomBytes generates random bytes
 func generateRandomBytes(length int) []byte {
 	bytes := make([]byte, length)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(fmt.Sprintf("failed to generate random bytes: %v", err))
+	}
 	return bytes
 }
 
