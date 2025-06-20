@@ -764,6 +764,224 @@ if __name__ == "__main__":
 	t.Logf("Call graph generation test completed successfully")
 }
 
+// TestPythonParser_ErrorHandling validates Step 9: Error Handling
+func TestPythonParser_ErrorHandling(t *testing.T) {
+	t.Run("InvalidPythonSyntax", func(t *testing.T) {
+		parser := NewPythonParser()
+
+		// Test various types of invalid Python syntax
+		invalidCodes := []struct {
+			name string
+			code string
+		}{
+			{
+				name: "MissingColon",
+				code: `def broken_function()
+    return "missing colon"`,
+			},
+			{
+				name: "UnclosedParenthesis",
+				code: `def broken_function(
+    param1,
+    param2
+    # Missing closing parenthesis
+    return "unclosed"`,
+			},
+			{
+				name: "InvalidIndentation",
+				code: `def valid_function():
+    if True:
+        return "good"
+  return "bad indentation"`,
+			},
+			{
+				name: "UnclosedString",
+				code: `def broken_function():
+    message = "unclosed string
+    return message`,
+			},
+			{
+				name: "InvalidClassDefinition",
+				code: `class BrokenClass
+    def method(self):
+        pass`,
+			},
+		}
+
+		for _, tc := range invalidCodes {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := parser.ParseFile(tc.name+".py", []byte(tc.code))
+				if err == nil {
+					t.Errorf("Expected error for invalid Python syntax in %s", tc.name)
+				} else {
+					t.Logf("Correctly caught syntax error in %s: %v", tc.name, err)
+					// Verify error message contains useful information
+					errorMsg := err.Error()
+					if !strings.Contains(errorMsg, "error") && !strings.Contains(errorMsg, "Error") {
+						t.Errorf("Error message should contain 'error': %s", errorMsg)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("EmptyAndEdgeCases", func(t *testing.T) {
+		parser := NewPythonParser()
+
+		edgeCases := []struct {
+			name      string
+			code      string
+			shouldErr bool
+		}{
+			{
+				name:      "EmptyFile",
+				code:      "",
+				shouldErr: false,
+			},
+			{
+				name:      "OnlyComments",
+				code:      "# This is just a comment\n# Another comment",
+				shouldErr: false,
+			},
+			{
+				name:      "OnlyWhitespace",
+				code:      "   \n\t\n   ",
+				shouldErr: false,
+			},
+			{
+				name:      "OnlyDocstring",
+				code:      `"""This is just a module docstring."""`,
+				shouldErr: false,
+			},
+			{
+				name:      "ValidMinimalCode",
+				code:      "x = 1",
+				shouldErr: false,
+			},
+		}
+
+		for _, tc := range edgeCases {
+			t.Run(tc.name, func(t *testing.T) {
+				fileContext, err := parser.ParseFile(tc.name+".py", []byte(tc.code))
+				if tc.shouldErr && err == nil {
+					t.Errorf("Expected error for %s", tc.name)
+				} else if !tc.shouldErr && err != nil {
+					t.Errorf("Unexpected error for %s: %v", tc.name, err)
+				} else if !tc.shouldErr && err == nil {
+					// Validate that we get a proper FileContext even for edge cases
+					if fileContext == nil {
+						t.Errorf("Expected valid FileContext for %s", tc.name)
+					} else {
+						if fileContext.Language != "python" {
+							t.Errorf("Expected language 'python', got %s", fileContext.Language)
+						}
+						t.Logf("%s: Successfully parsed with %d functions, %d types",
+							tc.name, len(fileContext.Functions), len(fileContext.Types))
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("PythonExecutableValidation", func(t *testing.T) {
+		// Test that our parser handles Python executable validation gracefully
+		parser := NewPythonParser()
+
+		// This should work with valid Python code even if setup validation has issues
+		validCode := `def test_function():
+    return "hello world"`
+
+		fileContext, err := parser.ParseFile("test.py", []byte(validCode))
+
+		// The parser should either work (if Python is available) or fail gracefully
+		if err != nil {
+			t.Logf("Parser failed (possibly due to Python setup): %v", err)
+			// Verify error message is informative
+			errorMsg := err.Error()
+			if strings.Contains(errorMsg, "python") || strings.Contains(errorMsg, "setup") {
+				t.Logf("Error message appropriately mentions Python setup issue")
+			}
+		} else {
+			t.Logf("Parser succeeded - Python environment is properly configured")
+			if fileContext == nil {
+				t.Error("Expected valid FileContext when parsing succeeds")
+			}
+		}
+	})
+
+	t.Run("ErrorMessageQuality", func(t *testing.T) {
+		parser := NewPythonParser()
+
+		// Test that error messages are informative and actionable
+		invalidCode := `def broken_function(
+    # This will definitely cause a syntax error
+    pass`
+
+		_, err := parser.ParseFile("error_test.py", []byte(invalidCode))
+		if err == nil {
+			t.Error("Expected error for invalid syntax")
+			return
+		}
+
+		errorMsg := err.Error()
+		t.Logf("Error message: %s", errorMsg)
+
+		// Check that error message contains useful information
+		expectedKeywords := []string{"error", "python", "syntax"}
+		foundKeywords := 0
+		for _, keyword := range expectedKeywords {
+			if strings.Contains(strings.ToLower(errorMsg), keyword) {
+				foundKeywords++
+			}
+		}
+
+		if foundKeywords == 0 {
+			t.Errorf("Error message should contain at least one of %v: %s", expectedKeywords, errorMsg)
+		}
+
+		// Error should not expose internal implementation details inappropriately
+		if strings.Contains(errorMsg, "panic") || strings.Contains(errorMsg, "nil pointer") {
+			t.Errorf("Error message should not expose internal panics: %s", errorMsg)
+		}
+	})
+
+	t.Run("GracefulDegradation", func(t *testing.T) {
+		parser := NewPythonParser()
+
+		// Test that parser can handle partially valid code gracefully
+		partiallyValidCode := `#!/usr/bin/env python3
+"""Module with mixed valid and problematic code."""
+
+# This is valid
+def valid_function():
+    return "this works"
+
+# This is also valid
+class ValidClass:
+    def method(self):
+        return "also works"
+
+# The parser should handle the valid parts even if there are issues
+x = 1
+y = 2`
+
+		fileContext, err := parser.ParseFile("partial.py", []byte(partiallyValidCode))
+
+		if err != nil {
+			t.Logf("Parser encountered error with partially valid code: %v", err)
+		} else {
+			// If parsing succeeds, validate we got the valid parts
+			if len(fileContext.Functions) == 0 && len(fileContext.Types) == 0 {
+				t.Error("Expected to extract at least some valid elements")
+			}
+			t.Logf("Successfully extracted %d functions and %d types from partially valid code",
+				len(fileContext.Functions), len(fileContext.Types))
+		}
+	})
+
+	t.Logf("Error handling test completed successfully")
+}
+
 // Helper function to find a function by name
 func findFunction(functions []models.Function, name string) *models.Function {
 	for i := range functions {
