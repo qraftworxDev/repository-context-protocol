@@ -9,6 +9,7 @@ import (
 
 	"repository-context-protocol/internal/ast"
 	"repository-context-protocol/internal/ast/golang"
+	"repository-context-protocol/internal/ast/python"
 	"repository-context-protocol/internal/models"
 )
 
@@ -67,10 +68,11 @@ func (ib *IndexBuilder) initializeParsers() {
 	goParser := golang.NewGoParser()
 	ib.parserRegistry.Register(goParser)
 
+	// Register Python parser
+	pythonParser := python.NewPythonParser()
+	ib.parserRegistry.Register(pythonParser)
+
 	// Future: Register additional parsers
-	// pythonParser := python.NewPythonParser()
-	// ib.parserRegistry.Register(pythonParser)
-	//
 	// typescriptParser := typescript.NewTypeScriptParser()
 	// ib.parserRegistry.Register(typescriptParser)
 }

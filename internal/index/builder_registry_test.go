@@ -52,7 +52,7 @@ func TestIndexBuilder_ParserRegistry(t *testing.T) {
 
 func TestIndexBuilder_MultipleParserSupport(t *testing.T) {
 	// Create temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "builder_multiparser_test")
+	tempDir, err := os.MkdirTemp("", "builder_multiple_parser_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -70,12 +70,19 @@ func TestIndexBuilder_MultipleParserSupport(t *testing.T) {
 	// Test that we can register additional parsers
 	// (This tests the extensibility even though we don't have other parsers yet)
 
-	// Verify unsupported extensions return false
-	_, exists := builder.parserRegistry.GetParser(".py")
-	if exists {
-		t.Error("Expected Python parser to not be registered")
+	// Verify Python parser is now registered (we added Python support)
+	pythonParser, exists := builder.parserRegistry.GetParser(".py")
+	if !exists {
+		t.Error("Expected Python parser to be registered")
+	}
+	if pythonParser == nil {
+		t.Error("Expected Python parser to not be nil")
+	}
+	if pythonParser.GetLanguageName() != "python" {
+		t.Errorf("Expected Python parser language name 'python', got '%s'", pythonParser.GetLanguageName())
 	}
 
+	// TypeScript is still not supported
 	_, exists = builder.parserRegistry.GetParser(".ts")
 	if exists {
 		t.Error("Expected TypeScript parser to not be registered")
@@ -159,9 +166,8 @@ func TestIndexBuilder_UnsupportedFileTypes(t *testing.T) {
 	}
 	defer builder.Close()
 
-	// Create unsupported file types
+	// Create unsupported file types (removed test.py since Python is now supported)
 	unsupportedFiles := []string{
-		"test.py",   // Python
 		"test.ts",   // TypeScript
 		"test.js",   // JavaScript
 		"test.txt",  // Text
