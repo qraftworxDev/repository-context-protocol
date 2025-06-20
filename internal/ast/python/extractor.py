@@ -246,7 +246,12 @@ class PythonASTExtractor(ast.NodeVisitor):
             )
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
+        # Handle relative imports by preserving the level (number of dots)
         module = node.module or ""
+        if node.level > 0:
+            # Add the appropriate number of dots for relative imports
+            module = "." * node.level + module
+
         for alias in node.names:
             self.imports.append(
                 {

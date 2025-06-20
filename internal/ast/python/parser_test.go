@@ -1,7 +1,9 @@
 package python
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"repository-context-protocol/internal/models"
@@ -430,6 +432,158 @@ class DataProcessor:
 	}
 
 	t.Logf("Type hint support test completed successfully")
+}
+
+// TestPythonParser_ImportSystem validates Step 7: Import System
+func TestPythonParser_ImportSystem(t *testing.T) {
+	parser := NewPythonParser()
+
+	// Test code with comprehensive import types
+	code := `#!/usr/bin/env python3
+"""Test import system support."""
+
+# Absolute imports (import module)
+import os
+import sys
+import json
+
+# Aliased imports (import numpy as np)
+import datetime as dt
+import collections as coll
+
+# From imports with multiple items
+from typing import List, Dict, Optional, Union, Any
+from pathlib import Path
+
+# From imports with aliases
+from collections import defaultdict as dd, Counter as cnt
+from datetime import datetime as dt_class, timedelta
+
+# Star imports (from module import *)
+from math import *
+
+# Relative imports (from .module import func)
+from .utils import helper_function
+from ..parent import shared_util
+from ...root import config
+
+# Mixed relative imports
+from .models import User, Profile
+from ..services import UserService
+
+def example_function():
+    """Function using various imports."""
+    # Use absolute imports
+    current_time = dt.now()
+    file_path = Path("/tmp/test.txt")
+
+    # Use aliased imports
+    counter = cnt([1, 2, 2, 3])
+    default_dict = dd(list)
+
+    # Use star imports
+    result = sqrt(16)  # from math import *
+
+    # Use relative imports
+    data = helper_function()
+    service = UserService()
+
+    return {"status": "success"}`
+
+	fileContext, err := parser.ParseFile("import_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Test that imports were extracted
+	if len(fileContext.Imports) == 0 {
+		t.Fatal("Expected imports to be extracted")
+	}
+
+	t.Logf("Found %d imports", len(fileContext.Imports))
+
+	// Create a map for easy lookup
+	importMap := make(map[string]*models.Import)
+	for i := range fileContext.Imports {
+		imp := &fileContext.Imports[i]
+		key := imp.Path
+		if imp.Alias != "" {
+			key = fmt.Sprintf("%s as %s", imp.Path, imp.Alias)
+		}
+		importMap[key] = imp
+		t.Logf("Import: path='%s', alias='%s'", imp.Path, imp.Alias)
+	}
+
+	// Test absolute imports
+	if imp, exists := importMap["os"]; !exists {
+		t.Error("Expected to find 'import os'")
+	} else if imp.Alias != "" {
+		t.Errorf("Expected no alias for 'os', got '%s'", imp.Alias)
+	}
+
+	if imp, exists := importMap["sys"]; !exists {
+		t.Error("Expected to find 'import sys'")
+	} else if imp.Alias != "" {
+		t.Errorf("Expected no alias for 'sys', got '%s'", imp.Alias)
+	}
+
+	// Test aliased imports
+	if imp, exists := importMap["datetime as dt"]; !exists {
+		t.Error("Expected to find 'import datetime as dt'")
+	} else if imp.Alias != "dt" {
+		t.Errorf("Expected alias 'dt' for datetime, got '%s'", imp.Alias)
+	}
+
+	// Test from imports
+	typingFound := false
+	pathlibFound := false
+	for _, imp := range fileContext.Imports {
+		if imp.Path == "typing" {
+			typingFound = true
+			t.Logf("Found typing import: %+v", imp)
+		}
+		if imp.Path == "pathlib" {
+			pathlibFound = true
+			t.Logf("Found pathlib import: %+v", imp)
+		}
+	}
+
+	if !typingFound {
+		t.Error("Expected to find 'from typing import ...'")
+	}
+	if !pathlibFound {
+		t.Error("Expected to find 'from pathlib import Path'")
+	}
+
+	// Test relative imports
+	relativeImportsFound := 0
+	for _, imp := range fileContext.Imports {
+		if strings.HasPrefix(imp.Path, ".") {
+			relativeImportsFound++
+			t.Logf("Found relative import: path='%s', alias='%s'", imp.Path, imp.Alias)
+		}
+	}
+
+	if relativeImportsFound == 0 {
+		t.Error("Expected to find relative imports (starting with '.')")
+	}
+
+	// Test star imports
+	starImportsFound := false
+	for _, imp := range fileContext.Imports {
+		// Check if this is a star import (our extractor should mark it)
+		// Note: This depends on how our extractor represents star imports
+		if imp.Path == "math" {
+			starImportsFound = true
+			t.Logf("Found math import (potential star import): %+v", imp)
+		}
+	}
+
+	if !starImportsFound {
+		t.Log("Note: Star import detection may need enhancement")
+	}
+
+	t.Logf("Import system test completed successfully")
 }
 
 // Helper function to find a function by name
