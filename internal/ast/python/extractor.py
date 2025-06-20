@@ -108,7 +108,12 @@ class PythonASTExtractor(ast.NodeVisitor):
         num_defaults = len(defaults)
         num_args = len(node.args.args)
 
-        for i, arg in enumerate(node.args.args):
+        # Skip 'self' parameter for methods (when we're inside a class)
+        start_index = 0
+        if self.current_class and num_args > 0 and node.args.args[0].arg == "self":
+            start_index = 1
+
+        for i, arg in enumerate(node.args.args[start_index:], start=start_index):
             param_info = {
                 "name": arg.arg,
                 "type": self._normalize_type(ast.unparse(arg.annotation))

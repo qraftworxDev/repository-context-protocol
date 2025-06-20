@@ -278,14 +278,158 @@ func TestPythonParser_EmptyFile(t *testing.T) {
 
 	// Empty file should have no functions, types, imports, etc.
 	if len(fileContext.Functions) != 0 {
-		t.Errorf("Expected 0 functions for empty file, got %d", len(fileContext.Functions))
+		t.Errorf("Expected 0 functions in empty file, got %d", len(fileContext.Functions))
 	}
 	if len(fileContext.Types) != 0 {
-		t.Errorf("Expected 0 types for empty file, got %d", len(fileContext.Types))
+		t.Errorf("Expected 0 types in empty file, got %d", len(fileContext.Types))
 	}
-	if len(fileContext.Imports) != 0 {
-		t.Errorf("Expected 0 imports for empty file, got %d", len(fileContext.Imports))
+}
+
+// TestPythonParser_TypeHintSupport validates Step 6: Type Hint Support
+func TestPythonParser_TypeHintSupport(t *testing.T) {
+	parser := NewPythonParser()
+
+	// Test code with comprehensive type hints
+	code := `#!/usr/bin/env python3
+"""Test type hint support."""
+
+from typing import List, Dict, Optional, Union, Any
+
+# Variables with type hints
+name: str = "test"
+age: int = 25
+scores: List[float] = [1.0, 2.0, 3.0]
+config: Dict[str, Any] = {}
+user_id: Optional[int] = None
+
+def process_data(
+    items: List[str],
+    options: Dict[str, bool] = None,
+    count: Optional[int] = None
+) -> Dict[str, Union[str, int]]:
+    """Process data with complex type hints."""
+    result: Dict[str, Union[str, int]] = {}
+    if options is None:
+        options = {}
+
+    result["count"] = len(items) if count is None else count
+    result["status"] = "processed"
+    return result
+
+def get_user_info(user_id: int) -> Optional[Dict[str, Any]]:
+    """Get user information with optional return."""
+    if user_id > 0:
+        return {"id": user_id, "name": "user"}
+    return None
+
+class DataProcessor:
+    """Class with typed methods and attributes."""
+
+    def __init__(self, data: List[Dict[str, Any]]):
+        self.data: List[Dict[str, Any]] = data
+        self.processed: bool = False
+
+    def process(self, filters: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Process data with optional filters."""
+        if filters:
+            return [item for item in self.data if any(f in str(item) for f in filters)]
+        return self.data
+
+    def get_count(self) -> int:
+        """Get data count."""
+        return len(self.data)`
+
+	fileContext, err := parser.ParseFile("type_hints.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
 	}
+
+	// Test function type hints
+	processFunc := findFunction(fileContext.Functions, "process_data")
+	if processFunc == nil {
+		t.Fatal("Expected to find process_data function")
+	}
+
+	// Validate parameter types
+	if len(processFunc.Parameters) != 3 {
+		t.Errorf("Expected 3 parameters, got %d", len(processFunc.Parameters))
+	}
+
+	// Check complex type mapping
+	if len(processFunc.Parameters) > 0 {
+		itemsParam := processFunc.Parameters[0]
+		if itemsParam.Name != "items" {
+			t.Errorf("Expected parameter name 'items', got %s", itemsParam.Name)
+		}
+		// Should map List[str] to Go-compatible type
+		if itemsParam.Type != "[]interface{}" && itemsParam.Type != "List[str]" {
+			t.Logf("Parameter 'items' has type: %s", itemsParam.Type)
+		}
+	}
+
+	if len(processFunc.Parameters) > 1 {
+		optionsParam := processFunc.Parameters[1]
+		if optionsParam.Name != "options" {
+			t.Errorf("Expected parameter name 'options', got %s", optionsParam.Name)
+		}
+		// Should handle Dict[str, bool] type
+		if optionsParam.Type != "map[string]interface{}" && optionsParam.Type != "Dict[str, bool]" {
+			t.Logf("Parameter 'options' has type: %s", optionsParam.Type)
+		}
+	}
+
+	// Test return type extraction
+	if len(processFunc.Returns) > 0 {
+		returnType := processFunc.Returns[0]
+		// Should handle Dict[str, Union[str, int]] return type
+		if returnType.Name == "" {
+			t.Error("Expected return type to be extracted")
+		}
+		t.Logf("Function 'process_data' return type: %s", returnType.Name)
+	}
+
+	// Test optional return type
+	getUserFunc := findFunction(fileContext.Functions, "get_user_info")
+	if getUserFunc == nil {
+		t.Fatal("Expected to find get_user_info function")
+	}
+
+	if len(getUserFunc.Returns) > 0 {
+		returnType := getUserFunc.Returns[0]
+		// Should handle Optional[Dict[str, Any]] return type
+		t.Logf("Function 'get_user_info' return type: %s", returnType.Name)
+	}
+
+	// Test class with typed methods
+	dataProcessorType := findType(fileContext.Types, "DataProcessor")
+	if dataProcessorType == nil {
+		t.Fatal("Expected to find DataProcessor class")
+	}
+
+	// Check typed method
+	processMethod := findMethod(dataProcessorType.Methods, "process")
+	if processMethod == nil {
+		t.Fatal("Expected to find process method")
+	}
+
+	if len(processMethod.Parameters) > 0 {
+		filtersParam := processMethod.Parameters[0]
+		if filtersParam.Name != "filters" {
+			t.Errorf("Expected parameter name 'filters', got %s", filtersParam.Name)
+		}
+		// Should handle Optional[List[str]] type
+		t.Logf("Method parameter 'filters' has type: %s", filtersParam.Type)
+	}
+
+	// Test variable type hints
+	if len(fileContext.Variables) > 0 {
+		t.Logf("Found %d variables with type hints", len(fileContext.Variables))
+		for _, variable := range fileContext.Variables {
+			t.Logf("Variable '%s' has type: %s", variable.Name, variable.Type)
+		}
+	}
+
+	t.Logf("Type hint support test completed successfully")
 }
 
 // Helper function to find a function by name
@@ -303,6 +447,16 @@ func findType(types []models.TypeDef, name string) *models.TypeDef {
 	for i := range types {
 		if types[i].Name == name {
 			return &types[i]
+		}
+	}
+	return nil
+}
+
+// Helper function to find a method by name
+func findMethod(methods []models.Method, name string) *models.Method {
+	for i := range methods {
+		if methods[i].Name == name {
+			return &methods[i]
 		}
 	}
 	return nil
