@@ -14,7 +14,7 @@ SERVICE_VERSION = "1.0.0"
 DEBUG_MODE = True
 
 # Module-level variables
-global_config: Optional['Config'] = None
+global_config: Optional["Config"] = None
 user_count = 0
 service_registry: Dict[str, Any] = {}
 is_initialized = False
@@ -23,6 +23,7 @@ is_initialized = False
 @dataclass
 class Address:
     """Represents a user's address."""
+
     street: str
     city: str
     state: str
@@ -31,7 +32,9 @@ class Address:
 
     def __str__(self) -> str:
         """Return formatted address string."""
-        return f"{self.street}, {self.city}, {self.state} {self.zip_code}, {self.country}"
+        return (
+            f"{self.street}, {self.city}, {self.state} {self.zip_code}, {self.country}"
+        )
 
     def validate(self) -> bool:
         """Validate the address fields."""
@@ -60,7 +63,7 @@ class Config:
         return self.features.get(feature, False)
 
     @classmethod
-    def create_default(cls) -> 'Config':
+    def create_default(cls) -> "Config":
         """Create a default configuration."""
         config = cls()
         config.set_feature("logging", True)
@@ -78,7 +81,7 @@ class User:
         self.email = email
         self.is_active = True
         self.created_at = datetime.now()
-        self.profile: Optional['Profile'] = None
+        self.profile: Optional["Profile"] = None
 
     def __str__(self) -> str:
         """Return string representation of user."""
@@ -92,7 +95,7 @@ class User:
         """Deactivate the user."""
         self.is_active = False
 
-    def set_profile(self, profile: 'Profile') -> None:
+    def set_profile(self, profile: "Profile") -> None:
         """Set the user's profile."""
         self.profile = profile
         profile.user_id = self.id
