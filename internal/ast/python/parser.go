@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"repository-context-protocol/internal/models"
@@ -108,6 +109,7 @@ type PythonExportInfo struct {
 
 // PythonParser implements the LanguageParser interface for Python files
 type PythonParser struct {
+	mu            sync.RWMutex
 	pythonPath    string
 	extractorPath string
 }
@@ -141,16 +143,9 @@ func (p *PythonParser) GetLanguageName() string {
 
 // ParseFile parses a Python file and returns a FileContext
 func (p *PythonParser) ParseFile(path string, content []byte) (*models.FileContext, error) {
-	// Ensure Python is available
-	if err := p.validatePythonSetup(); err != nil {
-		return nil, fmt.Errorf("python setup validation failed: %w", err)
-	}
-
-	// Set extractor path if not already set
-	if p.extractorPath == "" {
-		if err := p.setExtractorPath(); err != nil {
-			return nil, fmt.Errorf("failed to locate Python extractor: %w", err)
-		}
+	// Ensure Python is available and paths are set
+	if err := p.ensureInitialized(); err != nil {
+		return nil, fmt.Errorf("parser initialization failed: %w", err)
 	}
 
 	// Execute the Python extractor
@@ -168,8 +163,45 @@ func (p *PythonParser) ParseFile(path string, content []byte) (*models.FileConte
 	return fileContext, nil
 }
 
-// setExtractorPath determines the path to the Python extractor script
-func (p *PythonParser) setExtractorPath() error {
+// ensureInitialized ensures both Python setup and extractor path are configured with thread safety
+func (p *PythonParser) ensureInitialized() error {
+	// First, check if we're already initialized (read lock)
+	p.mu.RLock()
+	initialized := p.pythonPath != "" && p.extractorPath != ""
+	p.mu.RUnlock()
+
+	if initialized {
+		return nil
+	}
+
+	// We need to initialize, acquire write lock
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if p.pythonPath != "" && p.extractorPath != "" {
+		return nil
+	}
+
+	// Validate Python setup if not done yet
+	if p.pythonPath == "" {
+		if err := p.validatePythonSetupLocked(); err != nil {
+			return fmt.Errorf("python setup validation failed: %w", err)
+		}
+	}
+
+	// Set extractor path if not done yet
+	if p.extractorPath == "" {
+		if err := p.setExtractorPathLocked(); err != nil {
+			return fmt.Errorf("failed to locate Python extractor: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// setExtractorPathLocked determines the path to the Python extractor script (assumes write lock held)
+func (p *PythonParser) setExtractorPathLocked() error {
 	// Get the directory of the current Go file
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -190,10 +222,16 @@ func (p *PythonParser) setExtractorPath() error {
 
 // executeExtractor runs the Python extractor script and returns the JSON output
 func (p *PythonParser) executeExtractor(_ string, content []byte) ([]byte, error) {
+	// Get paths with read lock
+	p.mu.RLock()
+	pythonPath := p.pythonPath
+	extractorPath := p.extractorPath
+	p.mu.RUnlock()
+
 	// Create command to run Python extractor
 	// Don't pass the file path as argument, use stdin instead
 	// #nosec G204 - pythonPath and extractorPath are controlled internally and validated
-	cmd := exec.Command(p.pythonPath, p.extractorPath)
+	cmd := exec.Command(pythonPath, extractorPath)
 
 	// Always use content via stdin for consistency
 	cmd.Stdin = bytes.NewReader(content)
@@ -436,6 +474,13 @@ func (p *PythonParser) buildMethodSignature(method *PythonFunctionInfo) string {
 
 // validatePythonSetup checks if Python is available and accessible
 func (p *PythonParser) validatePythonSetup() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.validatePythonSetupLocked()
+}
+
+// validatePythonSetupLocked checks if Python is available and accessible (assumes write lock held)
+func (p *PythonParser) validatePythonSetupLocked() error {
 	// Try python3 first
 	if err := p.checkPythonExecutable(versionPython3); err == nil {
 		p.pythonPath = versionPython3

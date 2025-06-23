@@ -254,10 +254,12 @@ func (qe *QueryEngine) SearchByPatternWithOptions(pattern string, options QueryO
 	var allEntries []SearchResultEntry
 
 	// Get all entity types and search each
+	// TODO: just search through everything, why do we need to filter by type?
 	entityTypes := []string{EntityTypeFunction, EntityTypeType, EntityTypeVariable, EntityTypeConstant}
 	for _, entityType := range entityTypes {
 		queryResults, err := qe.storage.QueryByType(entityType)
 		if err != nil {
+			// TODO: collect errors and return them once done
 			continue // Skip errors and continue with other types
 		}
 

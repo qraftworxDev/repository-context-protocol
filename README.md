@@ -248,7 +248,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 1. testing with LLM
 1. extend to support Python
 
-# Bugs
+# Go bugs
 1. repocontext query --search "main*" --include-callers --json
     - callers: null i.s.o. callers: []
     - callees: [] i.s.o. omitted if empty
@@ -257,3 +257,37 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
     - callees: populated
 1. repocontext query --entity-type function --include-types
     - doesn't differ from "repocontext query --entity-type function"
+
+# Python bugs
+1. Function signature maps to go-based types, should stick to Python
+  {
+    "name": "extract",
+    "signature": "() -\u003e map[string]interface{}",
+    "parameters": null,
+    "returns": [
+      {
+        "name": "map[string]interface{}",
+        "kind": "builtin"
+      }
+    ],
+    "start_line": 32,
+    "end_line": 66
+  }
+1. --include-callers and --include-callees don't seem to have any effect. Could be broken.
+1. "kind" is empty in exports
+  {
+    "name": "PythonASTExtractor",
+    "type": "class",
+    "kind": ""
+  }
+1. imports are incomplete
+  {
+    "path": "typing"
+  }
+  should be Dict or Any, etc. as per the file content
+
+# TODO:
+1. test the rest of the functionality using depth, tokens limits, and other search functionality.
+   - tokens limit works
+   -
+1. Test different outputs.

@@ -319,7 +319,13 @@ class PythonASTExtractor(ast.NodeVisitor):
     def _infer_type(self, node: ast.AST) -> str:
         """Infer Python type from AST node."""
         if isinstance(node, ast.Constant):
-            return type(node.value).__name__
+            value_type = type(node.value).__name__
+            # Handle special constant types
+            if value_type == "NoneType":
+                return "None"
+            elif value_type in ("bytes", "bytearray"):
+                return value_type
+            return value_type
         elif isinstance(node, (ast.List, ast.ListComp)):
             return "list"
         elif isinstance(node, (ast.Dict, ast.DictComp)):
@@ -335,36 +341,243 @@ class PythonASTExtractor(ast.NodeVisitor):
                 "float",
                 "str",
                 "bool",
+                "bytes",
+                "bytearray",
                 "list",
                 "dict",
                 "set",
+                "frozenset",
                 "tuple",
+                "complex",
+                "range",
+                "enumerate",
+                "zip",
+                "filter",
+                "map",
+                "slice",
+                "object",
+                "type",
             ]:
                 return func_name
             return "Any"
+        elif isinstance(node, ast.Name):
+            # Handle special name constants
+            if node.id in ("None", "True", "False"):
+                return {"None": "None", "True": "bool", "False": "bool"}[node.id]
+            return "Any"
+        elif isinstance(node, ast.Attribute):
+            # Handle attribute access like obj.attr
+            return "Any"
+        elif isinstance(node, ast.BinOp):
+            # Handle binary operations
+            return "Any"
+        elif isinstance(node, ast.UnaryOp):
+            # Handle unary operations
+            return "Any"
+        elif isinstance(node, ast.Compare):
+            # Comparison operations return bool
+            return "bool"
+        elif isinstance(node, ast.BoolOp):
+            # Boolean operations return bool
+            return "bool"
+        elif isinstance(node, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Functions and lambdas
+            return "Callable"
         return "Any"
 
     def _normalize_type(self, type_str: str) -> str:
         """Normalize Python type annotations to Go-compatible types."""
+        # Handle None and NoneType
+        if type_str in ("None", "NoneType"):
+            return "nil"
+
+        # Handle empty type annotation
+        if not type_str or type_str.strip() == "":
+            return "interface{}"
+
+        # Strip whitespace
+        type_str = type_str.strip()
+
+        # Basic type mapping
         type_mapping = {
+            # Basic types
             "int": "int",
             "float": "float64",
             "str": "string",
             "bool": "bool",
+            "bytes": "[]byte",
+            "bytearray": "[]byte",
+            "complex": "complex128",
+            # Collection types
             "list": "[]interface{}",
             "dict": "map[string]interface{}",
+            "set": "map[interface{}]struct{}",
+            "frozenset": "map[interface{}]struct{}",
+            "tuple": "[]interface{}",
+            # Typing module types
             "List": "[]interface{}",
             "Dict": "map[string]interface{}",
+            "Set": "map[interface{}]struct{}",
+            "FrozenSet": "map[interface{}]struct{}",
+            "Tuple": "[]interface{}",
             "Optional": "*interface{}",
             "Union": "interface{}",
+            "Any": "interface{}",
+            "Callable": "func()",
+            "Iterable": "[]interface{}",
+            "Iterator": "[]interface{}",
+            "Generator": "[]interface{}",
+            "Coroutine": "interface{}",
+            "Awaitable": "interface{}",
+            # Special types
+            "object": "interface{}",
+            "type": "reflect.Type",
+            "slice": "[]interface{}",
+            "range": "[]int",
+            "enumerate": "[]interface{}",
+            "zip": "[]interface{}",
+            "filter": "[]interface{}",
+            "map": "[]interface{}",
         }
 
-        # Handle generic types
+        # Check for exact matches first
+        if type_str in type_mapping:
+            return type_mapping[type_str]
+
+        # Handle generic types with parameters
+        if "[" in type_str and "]" in type_str:
+            return self._parse_generic_type(type_str, type_mapping)
+
+        # Handle forward references (quoted types)
+        if type_str.startswith('"') and type_str.endswith('"'):
+            return self._normalize_type(type_str[1:-1])
+
+        if type_str.startswith("'") and type_str.endswith("'"):
+            return self._normalize_type(type_str[1:-1])
+
+        # Handle simple prefix matches for backwards compatibility
         for python_type, go_type in type_mapping.items():
             if type_str.startswith(python_type):
                 return go_type
 
-        return type_str  # Return as-is if no mapping found
+        # If no mapping found, return the original type
+        return type_str
+
+    def _parse_generic_type(self, type_str: str, type_mapping: Dict[str, str]) -> str:
+        """Parse generic type annotations like List[str], Dict[str, int], etc."""
+        try:
+            # Find the base type and parameters
+            bracket_start = type_str.find("[")
+            bracket_end = type_str.rfind("]")
+
+            if bracket_start == -1 or bracket_end == -1:
+                return type_str
+
+            base_type = type_str[:bracket_start].strip()
+            params_str = type_str[bracket_start + 1 : bracket_end].strip()
+
+            # Handle empty parameters
+            if not params_str:
+                return type_mapping.get(base_type, type_str)
+
+            # Parse parameters (handle nested brackets)
+            params = self._parse_type_parameters(params_str)
+
+            # Map based on base type
+            if base_type in ("List", "list"):
+                if params:
+                    element_type = self._normalize_type(params[0])
+                    return f"[]{element_type}"
+                return "[]interface{}"
+
+            elif base_type in ("Dict", "dict"):
+                if len(params) >= 2:
+                    key_type = self._normalize_type(params[0])
+                    value_type = self._normalize_type(params[1])
+                    return f"map[{key_type}]{value_type}"
+                elif len(params) == 1:
+                    key_type = self._normalize_type(params[0])
+                    return f"map[{key_type}]interface{{}}"
+                return "map[string]interface{}"
+
+            elif base_type in ("Set", "set"):
+                if params:
+                    element_type = self._normalize_type(params[0])
+                    return f"map[{element_type}]struct{{}}"
+                return "map[interface{}]struct{}"
+
+            elif base_type in ("FrozenSet", "frozenset"):
+                if params:
+                    element_type = self._normalize_type(params[0])
+                    return f"map[{element_type}]struct{{}}"
+                return "map[interface{}]struct{}"
+
+            elif base_type in ("Tuple", "tuple"):
+                if params:
+                    # For tuple with specific types, use array-like syntax
+                    if len(params) == 1:
+                        element_type = self._normalize_type(params[0])
+                        return f"[]{element_type}"
+                    else:
+                        # Multiple types - use interface{} or struct
+                        return "[]interface{}"
+                return "[]interface{}"
+
+            elif base_type == "Optional":
+                if params:
+                    inner_type = self._normalize_type(params[0])
+                    # Make it a pointer type
+                    if inner_type == "interface{}":
+                        return "*interface{}"
+                    elif inner_type.startswith("*"):
+                        return inner_type  # Already a pointer
+                    else:
+                        return f"*{inner_type}"
+                return "*interface{}"
+
+            elif base_type == "Union":
+                # Union types become interface{} in Go
+                return "interface{}"
+
+            elif base_type == "Callable":
+                # Parse function signature if possible
+                if params:
+                    return "func()"  # Simplified for now
+                return "func()"
+
+            else:
+                # Unknown generic type, return as-is or with interface{}
+                return type_mapping.get(base_type, type_str)
+
+        except Exception:
+            # If parsing fails, return the original string
+            return type_str
+
+    def _parse_type_parameters(self, params_str: str) -> list:
+        """Parse type parameters from a string like 'str, int' or 'Dict[str, int], bool'."""
+        params = []
+        current_param = ""
+        bracket_depth = 0
+
+        for char in params_str:
+            if char == "[":
+                bracket_depth += 1
+                current_param += char
+            elif char == "]":
+                bracket_depth -= 1
+                current_param += char
+            elif char == "," and bracket_depth == 0:
+                # We've found a parameter boundary
+                params.append(current_param.strip())
+                current_param = ""
+            else:
+                current_param += char
+
+        # Add the last parameter
+        if current_param.strip():
+            params.append(current_param.strip())
+
+        return params
 
     def _add_call_to_current_function(self, func_name: str, call_info: Dict[str, Any]):
         """Add a call to the current function's call list."""
