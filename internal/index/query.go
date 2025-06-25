@@ -3,6 +3,7 @@ package index
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -29,11 +30,12 @@ const (
 	EntityKindFunction  = "function"
 
 	// Token estimation constants
-	TokenOverhead   = 10
-	CallerTokens    = 20
-	CalleeTokens    = 20
-	MetadataTokens  = 50
-	DefaultMaxDepth = 1
+	TokenOverhead    = 10
+	CallerTokens     = 20
+	CalleeTokens     = 20
+	MetadataTokens   = 50
+	DefaultMaxDepth  = 1
+	LookAheadMatches = 2
 )
 
 // Query engine for semantic searches
@@ -694,7 +696,11 @@ func (qe *QueryEngine) getCompiledRegex(pattern string) (*regexp.Regexp, error) 
 	}
 
 	// Handle Go regex limitations - convert unsupported patterns to supported ones
-	cleanPattern = qe.convertUnsupportedRegexFeatures(cleanPattern)
+	convertedPattern, err := qe.convertUnsupportedRegexFeaturesWithError(cleanPattern, false)
+	if err != nil {
+		return nil, fmt.Errorf("regex pattern contains unsupported features: %w", err)
+	}
+	cleanPattern = convertedPattern
 
 	// Try to get from cache with read lock
 	qe.regexMutex.RLock()
@@ -722,34 +728,249 @@ func (qe *QueryEngine) getCompiledRegex(pattern string) (*regexp.Regexp, error) 
 	return regex, nil
 }
 
-// convertUnsupportedRegexFeatures converts unsupported regex features to supported alternatives
+// convertUnsupportedRegexFeatures converts unsupported regex features to supported alternatives.
+// This function handles Go regexp package limitations by converting unsupported patterns
+// to approximate alternatives. Warnings are logged when conversions occur.
+//
+// Unsupported features that are converted:
+// - Negative lookbehind (?<!pattern): Removed entirely
+// - Positive lookahead (?=pattern): Converted to .*pattern
+// - Negative lookahead (?!pattern): Removed entirely
+//
+// See docs/regex_limitations.md for detailed documentation on limitations and alternatives.
 func (qe *QueryEngine) convertUnsupportedRegexFeatures(pattern string) string {
-	// Go doesn't support lookbehind/lookahead, so we provide fallback behavior
+	originalPattern := pattern
+	conversionWarnings := []string{}
 
 	// Convert negative lookbehind (?<!pattern) - simplified approach
 	if strings.Contains(pattern, "(?<!") {
 		// For patterns like "(?<!Process).*Data", we just match ".*Data"
-		// This is a simplified fallback, not perfect but better than failing
+		// This is a simplified fallback that may match more results than intended
 		lookbehindPattern := regexp.MustCompile(`\(\?<![^)]+\)`)
+		matches := lookbehindPattern.FindAllString(pattern, -1)
 		pattern = lookbehindPattern.ReplaceAllString(pattern, "")
+
+		for _, match := range matches {
+			conversionWarnings = append(conversionWarnings,
+				fmt.Sprintf("negative lookbehind '%s' removed", match))
+		}
 	}
 
 	// Convert positive lookahead (?=pattern) - simplified approach
 	if strings.Contains(pattern, "(?=") {
 		// For patterns like "Handle(?=User)", we convert to "Handle.*User"
-		// This is approximate but provides useful behavior
+		// This is approximate and may have different matching behavior due to greedy matching
 		lookaheadPattern := regexp.MustCompile(`\(\?=([^)]+)\)`)
+		matches := lookaheadPattern.FindAllStringSubmatch(pattern, -1)
 		pattern = lookaheadPattern.ReplaceAllString(pattern, ".*$1")
+
+		for _, match := range matches {
+			if len(match) >= LookAheadMatches {
+				conversionWarnings = append(conversionWarnings,
+					fmt.Sprintf("positive lookahead '(?=%s)' converted to '.*%s'", match[1], match[1]))
+			}
+		}
 	}
 
 	// Convert negative lookahead (?!pattern)
 	if strings.Contains(pattern, "(?!") {
-		// For now, just remove the negative lookahead (fallback behavior)
+		// Remove the negative lookahead entirely (fallback behavior)
+		// This may match more results than intended
 		negLookaheadPattern := regexp.MustCompile(`\(\?![^)]+\)`)
+		matches := negLookaheadPattern.FindAllString(pattern, -1)
 		pattern = negLookaheadPattern.ReplaceAllString(pattern, "")
+
+		for _, match := range matches {
+			conversionWarnings = append(conversionWarnings,
+				fmt.Sprintf("negative lookahead '%s' removed", match))
+		}
+	}
+
+	// Log warnings if any conversions were made
+	if len(conversionWarnings) > 0 {
+		log.Printf("Regex pattern conversion warning: Original pattern '%s' contained unsupported features. Conversions: %s. "+
+			"This may affect matching behavior. See docs/regex_limitations.md for details.",
+			originalPattern, strings.Join(conversionWarnings, "; "))
 	}
 
 	return pattern
+}
+
+// convertUnsupportedRegexFeaturesWithError is like convertUnsupportedRegexFeatures but can return
+// an error instead of silently converting patterns when strictMode is true.
+//
+// Parameters:
+//   - pattern: The regex pattern to check and potentially convert
+//   - strictMode: If true, returns an error when unsupported features are detected
+//     If false, behaves like convertUnsupportedRegexFeatures with logging
+//
+// Returns the converted pattern and an error if strictMode is true and unsupported features were found.
+func (qe *QueryEngine) convertUnsupportedRegexFeaturesWithError(pattern string, strictMode bool) (string, error) {
+	originalPattern := pattern
+	conversionWarnings := []string{}
+	var unsupportedFeatures []string
+
+	// Process negative lookbehind
+	pattern = qe.processNegativeLookbehind(pattern, strictMode, &conversionWarnings, &unsupportedFeatures)
+
+	// Process positive lookahead
+	pattern = qe.processPositiveLookahead(pattern, strictMode, &conversionWarnings, &unsupportedFeatures)
+
+	// Process negative lookahead
+	pattern = qe.processNegativeLookahead(pattern, strictMode, &conversionWarnings, &unsupportedFeatures)
+
+	// Handle results
+	return qe.handleRegexConversionResults(originalPattern, pattern, strictMode, conversionWarnings, unsupportedFeatures)
+}
+
+// processLookaroundPattern is a generic helper for processing lookaround patterns
+func (qe *QueryEngine) processLookaroundPattern(
+	pattern,
+	checkString,
+	regexPattern,
+	patternName,
+	replacement string,
+	strictMode bool,
+	conversionWarnings, unsupportedFeatures *[]string,
+) string {
+	if !strings.Contains(pattern, checkString) {
+		return pattern
+	}
+
+	compiledPattern := regexp.MustCompile(regexPattern)
+	matches := compiledPattern.FindAllString(pattern, -1)
+
+	if len(matches) == 0 {
+		return pattern
+	}
+
+	if strictMode {
+		for _, match := range matches {
+			*unsupportedFeatures = append(*unsupportedFeatures,
+				fmt.Sprintf("%s '%s'", patternName, match))
+		}
+		return pattern
+	}
+
+	// Convert pattern
+	pattern = compiledPattern.ReplaceAllString(pattern, replacement)
+	for _, match := range matches {
+		if replacement == "" {
+			*conversionWarnings = append(*conversionWarnings,
+				fmt.Sprintf("%s '%s' removed", patternName, match))
+		} else {
+			*conversionWarnings = append(
+				*conversionWarnings,
+				fmt.Sprintf(
+					"%s '%s' converted to '%s'",
+					patternName,
+					match,
+					replacement,
+				),
+			)
+		}
+	}
+	return pattern
+}
+
+// processNegativeLookbehind handles negative lookbehind patterns
+func (qe *QueryEngine) processNegativeLookbehind(
+	pattern string,
+	strictMode bool,
+	conversionWarnings,
+	unsupportedFeatures *[]string,
+) string {
+	return qe.processLookaroundPattern(
+		pattern,
+		"(?<!",
+		`\(\?<![^)]+\)`,
+		"negative lookbehind",
+		"",
+		strictMode,
+		conversionWarnings,
+		unsupportedFeatures,
+	)
+}
+
+// processPositiveLookahead handles positive lookahead patterns
+func (qe *QueryEngine) processPositiveLookahead(pattern string, strictMode bool, conversionWarnings, unsupportedFeatures *[]string) string {
+	if !strings.Contains(pattern, "(?=") {
+		return pattern
+	}
+
+	lookaheadPattern := regexp.MustCompile(`\(\?=([^)]+)\)`)
+	matches := lookaheadPattern.FindAllStringSubmatch(pattern, -1)
+
+	if len(matches) == 0 {
+		return pattern
+	}
+
+	if strictMode {
+		for _, match := range matches {
+			if len(match) >= LookAheadMatches {
+				*unsupportedFeatures = append(*unsupportedFeatures,
+					fmt.Sprintf("positive lookahead '(?=%s)'", match[1]))
+			}
+		}
+		return pattern
+	}
+
+	// Convert pattern - this is more complex than the generic helper can handle
+	// because we need to preserve the captured group content
+	pattern = lookaheadPattern.ReplaceAllString(pattern, ".*$1")
+	for _, match := range matches {
+		if len(match) >= LookAheadMatches {
+			*conversionWarnings = append(
+				*conversionWarnings,
+				fmt.Sprintf(
+					"positive lookahead '(?=%s)' converted to '.*%s'",
+					match[1],
+					match[1],
+				),
+			)
+		}
+	}
+	return pattern
+}
+
+// processNegativeLookahead handles negative lookahead patterns
+func (qe *QueryEngine) processNegativeLookahead(
+	pattern string,
+	strictMode bool,
+	conversionWarnings,
+	unsupportedFeatures *[]string,
+) string {
+	return qe.processLookaroundPattern(
+		pattern,
+		"(?!",
+		`\(\?![^)]+\)`,
+		"negative lookahead",
+		"",
+		strictMode,
+		conversionWarnings,
+		unsupportedFeatures,
+	)
+}
+
+// handleRegexConversionResults handles the final result processing
+func (qe *QueryEngine) handleRegexConversionResults(
+	originalPattern, pattern string, strictMode bool, conversionWarnings, unsupportedFeatures []string,
+) (string, error) {
+	// Handle strict mode - return error if unsupported features found
+	if strictMode && len(unsupportedFeatures) > 0 {
+		return "", fmt.Errorf("unsupported regex features detected: %s. "+
+			"Use simpler patterns or see docs/regex_limitations.md for alternatives",
+			strings.Join(unsupportedFeatures, ", "))
+	}
+
+	// Log warnings if any conversions were made (non-strict mode)
+	if !strictMode && len(conversionWarnings) > 0 {
+		log.Printf("Regex pattern conversion warning: Original pattern '%s' contained unsupported features. Conversions: %s. "+
+			"This may affect matching behavior. See docs/regex_limitations.md for details.",
+			originalPattern, strings.Join(conversionWarnings, "; "))
+	}
+
+	return pattern, nil
 }
 
 func (qe *QueryEngine) applyTokenLimits(result *SearchResult, maxTokens int) {

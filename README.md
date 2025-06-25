@@ -16,10 +16,12 @@ A comprehensive Go CLI tool for semantic code repository analysis and indexing. 
 
 ### Query Operations
 - Search by function name, type, variable, or file
-- Pattern-based search with wildcards
+- Pattern-based search with wildcards and regex patterns
 - Call graph traversal (callers/callees) with depth control
 - Token-aware result limiting for LLM context windows
 - Cross-file relationship analysis
+
+> **Note**: Regex patterns with unsupported features (lookbehind, lookahead) are automatically converted to supported alternatives with warnings. See [docs/regex_limitations.md](docs/regex_limitations.md) for details.
 
 ## 🏗️ Architecture
 
@@ -78,6 +80,9 @@ repocontext query --search "payment" --max-tokens 1500 --json
 
 # Pattern matching
 repocontext query --function "*User*" --include-types
+
+# Regex patterns (with automatic conversion of unsupported features)
+repocontext query --function "/Handle.*User/" --include-callers
 ```
 
 ### Example Output
