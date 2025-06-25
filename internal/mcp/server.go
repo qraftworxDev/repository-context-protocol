@@ -124,7 +124,21 @@ func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
 		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
 	)
 
-	return []mcp.Tool{queryByNameTool}
+	// Query by pattern tool
+	queryByPatternTool := mcp.NewTool("query_by_pattern",
+		mcp.WithDescription(
+			"Search for entities using glob or regex patterns "+
+				"(supports wildcards *, ?, character classes [abc], brace expansion {a,b}, and regex /pattern/)",
+		),
+		mcp.WithString("pattern", mcp.Required(), mcp.Description("Search pattern (supports glob and regex patterns)")),
+		mcp.WithString("entity_type", mcp.Description("Filter by entity type: function, type, variable, constant")),
+		mcp.WithBoolean("include_callers", mcp.Description("Include functions that call matched functions")),
+		mcp.WithBoolean("include_callees", mcp.Description("Include functions called by matched functions")),
+		mcp.WithBoolean("include_types", mcp.Description("Include related type definitions")),
+		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
+	)
+
+	return []mcp.Tool{queryByNameTool, queryByPatternTool}
 }
 
 // RegisterRepoTools registers the repository management MCP tools
@@ -174,53 +188,98 @@ func (s *RepoContextMCPServer) HandleQueryByName(_ context.Context, request mcp.
 	return s.FormatSuccessResponse(searchResult), nil
 }
 
-// handleQueryByPattern handles the query_by_pattern MCP tool
-// func (s *RepoContextMCPServer) handleQueryByPattern(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-// 	// Validate repository first
-// 	if err := s.validateRepository(); err != nil {
-// 		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-// 	}
+// validateEntityType validates the entity_type parameter
+func (s *RepoContextMCPServer) validateEntityType(entityType string) error {
+	if entityType == "" {
+		return nil // Empty is valid (no filter)
+	}
 
-// 	// Parse parameters
-// 	pattern := mcp.ParseString(request, "pattern", "")
-// 	if pattern == "" {
-// 		return mcp.NewToolResultError("pattern parameter is required"), nil
-// 	}
+	validEntityTypes := []string{"function", "type", "variable", "constant"}
+	for _, validType := range validEntityTypes {
+		if entityType == validType {
+			return nil
+		}
+	}
 
-// 	// TODO: Implement actual pattern query logic
-// 	result := map[string]interface{}{
-// 		"query":   pattern,
-// 		"status":  "not_implemented",
-// 		"message": "Pattern query functionality not yet implemented",
-// 	}
+	return fmt.Errorf("invalid entity_type '%s', must be one of: function, type, variable, constant", entityType)
+}
 
-// 	return s.formatSuccessResponse(result), nil
-// }
+// executePatternSearchWithFilter executes pattern search with optional entity type filtering
+func (s *RepoContextMCPServer) executePatternSearchWithFilter(
+	pattern, entityType string,
+	queryOptions index.QueryOptions,
+) (*index.SearchResult, error) {
+	searchResult, err := s.QueryEngine.SearchByPatternWithOptions(pattern, queryOptions)
+	if err != nil {
+		return nil, err
+	}
 
-// // handleInitializeRepository handles the initialize_repository MCP tool
-// func (s *RepoContextMCPServer) handleInitializeRepository(
-// 	ctx context.Context, request mcp.CallToolRequest,
-// ) (*mcp.CallToolResult, error) {
-// 	// Parse parameters
-// 	path := mcp.ParseString(request, "path", ".")
+	// Apply entity type filter if specified
+	if entityType != "" {
+		filteredEntries := make([]index.SearchResultEntry, 0)
+		for _, entry := range searchResult.Entries {
+			if entry.IndexEntry.Type == entityType {
+				filteredEntries = append(filteredEntries, entry)
+			}
+		}
+		searchResult.Entries = filteredEntries
+	}
 
-// 	// Resolve absolute path
-// 	absPath, err := filepath.Abs(path)
-// 	if err != nil {
-// 		return mcp.NewToolResultError(fmt.Sprintf("Invalid path: %v", err)), nil
-// 	}
+	return searchResult, nil
+}
 
-// 	// TODO: Implement actual repository initialization
-// 	result := map[string]interface{}{
-// 		"path":    absPath,
-// 		"status":  "not_implemented",
-// 		"message": "Repository initialization not yet implemented",
-// 	}
+// HandleQueryByPattern handles the query_by_pattern MCP tool
+func (s *RepoContextMCPServer) HandleQueryByPattern(
+	_ context.Context,
+	request mcp.CallToolRequest,
+) (*mcp.CallToolResult, error) {
+	// Check for system-level failures that prevent operation
+	if s.QueryEngine == nil {
+		return nil, fmt.Errorf("query engine not initialized - system configuration error")
+	}
 
-// 	return s.formatSuccessResponse(result), nil
-// }
+	// Validate repository first
+	if err := s.validateRepository(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
+	}
 
-// formatSuccessResponse formats a successful response for MCP
+	// Parse parameters using the MCP library helper functions
+	pattern := request.GetString("pattern", "")
+	if pattern == "" {
+		return mcp.NewToolResultError("pattern parameter is required"), nil
+	}
+
+	entityType := request.GetString("entity_type", "")
+	includeCallers := request.GetBool("include_callers", false)
+	includeCallees := request.GetBool("include_callees", false)
+	includeTypes := request.GetBool("include_types", false)
+	maxTokens := request.GetInt("max_tokens", varMaxTokens)
+
+	// Validate entity type if provided
+	if err := s.validateEntityType(entityType); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// Build query options
+	queryOptions := index.QueryOptions{
+		IncludeCallers: includeCallers,
+		IncludeCallees: includeCallees,
+		IncludeTypes:   includeTypes,
+		MaxTokens:      maxTokens,
+		Format:         "json",
+	}
+
+	// Execute the pattern search with optional filtering
+	searchResult, err := s.executePatternSearchWithFilter(pattern, entityType, queryOptions)
+	if err != nil {
+		return s.FormatErrorResponse("query_by_pattern", err), nil
+	}
+
+	// Return the formatted result
+	return s.FormatSuccessResponse(searchResult), nil
+}
+
+// FormatSuccessResponse formats a successful response for MCP
 func (s *RepoContextMCPServer) FormatSuccessResponse(data interface{}) *mcp.CallToolResult {
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
