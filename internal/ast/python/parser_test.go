@@ -982,6 +982,82 @@ y = 2`
 	t.Logf("Error handling test completed successfully")
 }
 
+// TestPythonParser_MultipleReturnTypes tests handling of multiple return types in method signatures
+func TestPythonParser_MultipleReturnTypes(t *testing.T) {
+	parser := NewPythonParser()
+
+	// Test single return type
+	singleReturnFunc := &PythonFunctionInfo{
+		Name: "single_return",
+		Parameters: []PythonParameterInfo{
+			{Name: "param1", Type: "str"},
+		},
+		Returns: []PythonTypeInfo{
+			{Name: "str", Kind: "builtin"},
+		},
+	}
+
+	signature := parser.buildMethodSignature(singleReturnFunc)
+	expected := "(param1: str) -> str"
+	if signature != expected {
+		t.Errorf("Single return type signature mismatch. Expected: %s, Got: %s", expected, signature)
+	}
+
+	// Test multiple different return types
+	multipleReturnFunc := &PythonFunctionInfo{
+		Name: "multiple_return",
+		Parameters: []PythonParameterInfo{
+			{Name: "param1", Type: "str"},
+			{Name: "param2", Type: "int"},
+		},
+		Returns: []PythonTypeInfo{
+			{Name: "str", Kind: "builtin"},
+			{Name: "int", Kind: "builtin"},
+			{Name: "bool", Kind: "builtin"},
+		},
+	}
+
+	signature = parser.buildMethodSignature(multipleReturnFunc)
+	expected = "(param1: str, param2: int) -> Union[str, int, bool]"
+	if signature != expected {
+		t.Errorf("Multiple return type signature mismatch. Expected: %s, Got: %s", expected, signature)
+	}
+
+	// Test multiple identical return types
+	identicalReturnFunc := &PythonFunctionInfo{
+		Name: "identical_return",
+		Parameters: []PythonParameterInfo{
+			{Name: "param1", Type: "str"},
+		},
+		Returns: []PythonTypeInfo{
+			{Name: "str", Kind: "builtin"},
+			{Name: "str", Kind: "builtin"},
+			{Name: "str", Kind: "builtin"},
+		},
+	}
+
+	signature = parser.buildMethodSignature(identicalReturnFunc)
+	expected = "(param1: str) -> str"
+	if signature != expected {
+		t.Errorf("Identical return type signature mismatch. Expected: %s, Got: %s", expected, signature)
+	}
+
+	// Test no return type (should default to None)
+	noReturnFunc := &PythonFunctionInfo{
+		Name:       "no_return",
+		Parameters: []PythonParameterInfo{},
+		Returns:    []PythonTypeInfo{},
+	}
+
+	signature = parser.buildMethodSignature(noReturnFunc)
+	expected = "() -> None"
+	if signature != expected {
+		t.Errorf("No return type signature mismatch. Expected: %s, Got: %s", expected, signature)
+	}
+
+	t.Log("Multiple return type test completed successfully")
+}
+
 // Helper function to find a function by name
 func findFunction(functions []models.Function, name string) *models.Function {
 	for i := range functions {

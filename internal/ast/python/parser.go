@@ -463,13 +463,44 @@ func (p *PythonParser) buildMethodSignature(method *PythonFunctionInfo) string {
 
 	paramStr := strings.Join(parts, ", ")
 
-	// Add return type
+	// Add return type - handle multiple return types
 	returnStr := "None"
 	if len(method.Returns) > 0 {
-		returnStr = method.Returns[0].Name
+		if len(method.Returns) == 1 {
+			returnStr = method.Returns[0].Name
+		} else {
+			// Multiple return types - format as Union or Tuple depending on context
+			var returnTypes []string
+			for _, ret := range method.Returns {
+				returnTypes = append(returnTypes, ret.Name)
+			}
+
+			// If all return types are the same, just use one
+			if p.allReturnTypesSame(method.Returns) {
+				returnStr = method.Returns[0].Name
+			} else {
+				// Format as Union for multiple different types
+				returnStr = fmt.Sprintf("Union[%s]", strings.Join(returnTypes, ", "))
+			}
+		}
 	}
 
 	return fmt.Sprintf("(%s) -> %s", paramStr, returnStr)
+}
+
+// allReturnTypesSame checks if all return types in the slice are identical
+func (p *PythonParser) allReturnTypesSame(returns []PythonTypeInfo) bool {
+	if len(returns) <= 1 {
+		return true
+	}
+
+	first := returns[0].Name
+	for _, ret := range returns[1:] {
+		if ret.Name != first {
+			return false
+		}
+	}
+	return true
 }
 
 // validatePythonSetup checks if Python is available and accessible
