@@ -3,6 +3,7 @@
 # Binary names
 BINARY_NAME=repocontext
 LSP_BINARY_NAME=repocontext-lsp
+MCP_BINARY_NAME=repocontext-mcp
 
 # Build info
 VERSION ?= $(shell git describe --tags --always --dirty)
@@ -17,7 +18,7 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build binaries
-	@echo "Building $(BINARY_NAME)..."
+	@echo "Building binaries..."
 	@mkdir -p bin
 	@if [ -f "cmd/repocontext/main.go" ]; then \
 		go build $(LDFLAGS) -o bin/$(BINARY_NAME) cmd/repocontext/main.go; \
@@ -28,6 +29,11 @@ build: ## Build binaries
 		go build $(LDFLAGS) -o bin/$(LSP_BINARY_NAME) cmd/lsp/main.go; \
 	else \
 		echo "cmd/lsp/main.go not found, skipping $(LSP_BINARY_NAME) build"; \
+	fi
+	@if [ -f "cmd/mcp/main.go" ]; then \
+		go build $(LDFLAGS) -o bin/$(MCP_BINARY_NAME) cmd/mcp/main.go; \
+	else \
+		echo "cmd/mcp/main.go not found, skipping $(MCP_BINARY_NAME) build"; \
 	fi
 
 test: ## Run unit tests
@@ -97,6 +103,7 @@ dev-setup: build ## Setup development environment
 install: build ## Install binaries to system
 	cp bin/$(BINARY_NAME) /usr/local/bin/
 	cp bin/$(LSP_BINARY_NAME) /usr/local/bin/
+	cp bin/$(MCP_BINARY_NAME) /usr/local/bin/
 
 clean: ## Clean build artifacts
 	rm -rf bin/
