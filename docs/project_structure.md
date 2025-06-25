@@ -2,8 +2,6 @@ repocontext/
 ├── cmd/
 │   ├── repocontext/           # Main CLI binary
 │   │   └── main.go
-│   └── lsp/                   # LSP server binary
-│       └── main.go
 ├── internal/
 │   ├── ast/                   # Language parsers
 │   │   ├── parser.go          # Common parser interface
@@ -29,10 +27,6 @@ repocontext/
 │   │   ├── build.go          # Build index
 │   │   ├── query.go          # Query interface
 │   │   └── serve.go          # HTTP server mode
-│   └── lsp/                   # LSP implementation
-│       ├── server.go          # LSP server
-│       ├── handlers.go        # LSP method handlers
-│       └── protocol.go        # LSP protocol helpers
 ├── pkg/                       # Public APIs (if needed)
 │   └── client/
 │       └── client.go          # Go client library
