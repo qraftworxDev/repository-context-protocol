@@ -3,8 +3,11 @@ package index
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"repository-context-protocol/internal/models"
@@ -27,18 +30,21 @@ const (
 	EntityKindFunction  = "function"
 
 	// Token estimation constants
-	TokenOverhead   = 10
-	CallerTokens    = 20
-	CalleeTokens    = 20
-	MetadataTokens  = 50
-	DefaultMaxDepth = 1
+	TokenOverhead    = 10
+	CallerTokens     = 20
+	CalleeTokens     = 20
+	MetadataTokens   = 50
+	DefaultMaxDepth  = 1
+	LookAheadMatches = 2
 )
 
 // Query engine for semantic searches
 
 // QueryEngine provides semantic search capabilities over the indexed repository
 type QueryEngine struct {
-	storage *HybridStorage
+	storage    *HybridStorage
+	regexCache map[string]*regexp.Regexp
+	regexMutex sync.RWMutex
 }
 
 // QueryOptions configures search behavior and result formatting
@@ -88,7 +94,8 @@ type CallGraphEntry struct {
 // NewQueryEngine creates a new query engine with the given storage
 func NewQueryEngine(storage *HybridStorage) *QueryEngine {
 	return &QueryEngine{
-		storage: storage,
+		storage:    storage,
+		regexCache: make(map[string]*regexp.Regexp),
 	}
 }
 
@@ -208,36 +215,8 @@ func (qe *QueryEngine) SearchByTypeWithOptions(entityType string, options QueryO
 
 // SearchByPattern searches for entities matching a pattern (supports wildcards)
 func (qe *QueryEngine) SearchByPattern(pattern string) (*SearchResult, error) {
-	result := &SearchResult{
-		Query:      pattern,
-		SearchType: "pattern",
-		ExecutedAt: time.Now(),
-		Options:    &QueryOptions{}, // Default empty options
-	}
-
-	// For now, implement simple prefix matching with *
-	// In a full implementation, this could use more sophisticated pattern matching
-	var allEntries []SearchResultEntry
-
-	// Get all entity types and search each
-	entityTypes := []string{EntityTypeFunction, EntityTypeType, EntityTypeVariable, EntityTypeConstant}
-	for _, entityType := range entityTypes {
-		queryResults, err := qe.storage.QueryByType(entityType)
-		if err != nil {
-			continue // Skip errors and continue with other types
-		}
-
-		for _, qr := range queryResults {
-			if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
-				allEntries = append(allEntries, SearchResultEntry(qr))
-			}
-		}
-	}
-
-	result.Entries = allEntries
-	result.TokenCount = qe.EstimateTokens(result)
-
-	return result, nil
+	// Use the full-featured version with default options
+	return qe.SearchByPatternWithOptions(pattern, QueryOptions{})
 }
 
 // SearchByPatternWithOptions searches for entities matching a pattern with query options
@@ -254,9 +233,25 @@ func (qe *QueryEngine) SearchByPatternWithOptions(pattern string, options QueryO
 	var allEntries []SearchResultEntry
 
 	// Get all entity types and search each
-	entityTypes := []string{EntityTypeFunction, EntityTypeType, EntityTypeVariable, EntityTypeConstant}
-	for _, entityType := range entityTypes {
+	// Search functions, variables, constants
+	basicEntityTypes := []string{EntityTypeFunction, EntityTypeVariable, EntityTypeConstant}
+	for _, entityType := range basicEntityTypes {
 		queryResults, err := qe.storage.QueryByType(entityType)
+		if err != nil {
+			continue // Skip errors and continue with other types
+		}
+
+		for _, qr := range queryResults {
+			if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
+				allEntries = append(allEntries, SearchResultEntry(qr))
+			}
+		}
+	}
+
+	// Search all type kinds (struct, interface, etc.) since types are stored by their specific kind
+	typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum}
+	for _, typeKind := range typeKinds {
+		queryResults, err := qe.storage.QueryByType(typeKind)
 		if err != nil {
 			continue // Skip errors and continue with other types
 		}
@@ -537,16 +532,445 @@ func (qe *QueryEngine) EstimateTokens(result *SearchResult) int {
 
 // Helper methods
 
+// matchesPattern supports both glob and regex patterns with automatic detection
 func (qe *QueryEngine) matchesPattern(name, pattern string) bool {
-	// Simple pattern matching (supports * wildcard at the end)
-	if pattern == "*" {
+	// Detect pattern type and route accordingly
+	if qe.isRegexPattern(pattern) {
+		return qe.matchesRegex(name, pattern)
+	}
+	return qe.matchesGlob(name, pattern)
+}
+
+// isRegexPattern detects if pattern uses regex syntax
+func (qe *QueryEngine) isRegexPattern(pattern string) bool {
+	// Check for explicit regex delimiters like /pattern/
+	if strings.HasPrefix(pattern, "/") && strings.HasSuffix(pattern, "/") && len(pattern) > 2 {
 		return true
 	}
-	if strings.HasSuffix(pattern, "*") {
-		prefix := pattern[:len(pattern)-1]
-		return strings.HasPrefix(name, prefix)
+
+	// Simple heuristic: contains regex metacharacters not commonly used in globs
+	// Exclude braces {} as they're used in glob brace expansion
+	regexChars := []string{"(", ")", "^", "$", "+", "|", "\\"}
+	for _, char := range regexChars {
+		if strings.Contains(pattern, char) {
+			return true
+		}
 	}
-	return name == pattern
+
+	// Check for regex-specific patterns
+	regexPatterns := []string{"(?", ".+", ".*", ".?", "\\d", "\\w", "\\s", "\\p{", "\\b"}
+	for _, regexPattern := range regexPatterns {
+		if strings.Contains(pattern, regexPattern) {
+			return true
+		}
+	}
+
+	// Check for regex quantifiers like {1,3} - these are regex if they follow pattern like word{min,max}
+	if strings.Contains(pattern, "{") && strings.Contains(pattern, "}") {
+		// Simple heuristic: if contains digits with comma inside braces, it's likely regex quantifier
+		braceStart := strings.Index(pattern, "{")
+		braceEnd := strings.Index(pattern[braceStart:], "}")
+		if braceEnd != -1 {
+			braceContent := pattern[braceStart+1 : braceStart+braceEnd]
+			if strings.Contains(braceContent, ",") || (braceContent != "" && isAllDigits(braceContent)) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isAllDigits checks if a string contains only digits
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesGlob handles shell-style glob patterns with enhanced support
+func (qe *QueryEngine) matchesGlob(name, pattern string) bool {
+	// Handle brace expansion first
+	if strings.Contains(pattern, "{") && strings.Contains(pattern, "}") {
+		return qe.matchesBraceExpansion(name, pattern)
+	}
+
+	// Handle character class negation [!...] - Go's filepath.Match has issues with this
+	if strings.Contains(pattern, "[!") {
+		return qe.matchesGlobWithNegation(name, pattern)
+	}
+
+	// Use filepath.Match for standard glob patterns
+	matched, err := filepath.Match(pattern, name)
+	if err != nil {
+		// Invalid glob pattern, fall back to exact match
+		return name == pattern
+	}
+	return matched
+}
+
+// matchesRegex handles full regular expressions with caching
+func (qe *QueryEngine) matchesRegex(name, pattern string) bool {
+	regex, err := qe.getCompiledRegex(pattern)
+	if err != nil {
+		// Invalid regex, fall back to exact match
+		return name == pattern
+	}
+	return regex.MatchString(name)
+}
+
+// matchesGlobWithNegation handles glob patterns with character class negation [!...]
+func (qe *QueryEngine) matchesGlobWithNegation(name, pattern string) bool {
+	// Convert negation pattern to equivalent regex
+	// [!ABC] becomes [^ABC] in regex
+	regexPattern := strings.ReplaceAll(pattern, "[!", "[^")
+
+	// Convert glob wildcards to regex equivalents
+	regexPattern = strings.ReplaceAll(regexPattern, "*", ".*")
+	regexPattern = strings.ReplaceAll(regexPattern, "?", ".")
+
+	// Anchor the pattern to match the entire string
+	regexPattern = "^" + regexPattern + "$"
+
+	// Use regex matching since it handles negation properly
+	regex, err := qe.getCompiledRegex(regexPattern)
+	if err != nil {
+		// Fall back to exact match if regex compilation fails
+		return name == pattern
+	}
+
+	return regex.MatchString(name)
+}
+
+// matchesBraceExpansion handles brace expansion patterns like {option1,option2}
+func (qe *QueryEngine) matchesBraceExpansion(name, pattern string) bool {
+	// Find the first brace group
+	openBrace := strings.Index(pattern, "{")
+	closeBrace := strings.Index(pattern[openBrace:], "}")
+	if openBrace == -1 || closeBrace == -1 {
+		// No valid brace group, fall back to standard glob
+		matched, err := filepath.Match(pattern, name)
+		return err == nil && matched
+	}
+
+	closeBrace += openBrace // Adjust for substring offset
+
+	// Extract parts
+	prefix := pattern[:openBrace]
+	suffix := pattern[closeBrace+1:]
+	options := pattern[openBrace+1 : closeBrace]
+
+	// Handle empty braces
+	if options == "" {
+		return false
+	}
+
+	// Split options by comma
+	optionList := strings.Split(options, ",")
+
+	// Test each option
+	for _, option := range optionList {
+		expandedPattern := prefix + option + suffix
+		// Use filepath.Match directly to avoid infinite recursion
+		matched, err := filepath.Match(expandedPattern, name)
+		if err == nil && matched {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getCompiledRegex returns cached regex or compiles new one with thread safety
+func (qe *QueryEngine) getCompiledRegex(pattern string) (*regexp.Regexp, error) {
+	// Strip regex delimiters if present
+	cleanPattern := pattern
+	if strings.HasPrefix(pattern, "/") && strings.HasSuffix(pattern, "/") && len(pattern) > 2 {
+		cleanPattern = pattern[1 : len(pattern)-1]
+	}
+
+	// Handle Go regex limitations - convert unsupported patterns to supported ones
+	convertedPattern, err := qe.convertUnsupportedRegexFeaturesWithError(cleanPattern, false)
+	if err != nil {
+		return nil, fmt.Errorf("regex pattern contains unsupported features: %w", err)
+	}
+	cleanPattern = convertedPattern
+
+	// Try to get from cache with read lock
+	qe.regexMutex.RLock()
+	if regex, exists := qe.regexCache[cleanPattern]; exists {
+		qe.regexMutex.RUnlock()
+		return regex, nil
+	}
+	qe.regexMutex.RUnlock()
+
+	// Compile and cache with write lock
+	qe.regexMutex.Lock()
+	defer qe.regexMutex.Unlock()
+
+	// Double-check after acquiring write lock (prevent race condition)
+	if regex, exists := qe.regexCache[cleanPattern]; exists {
+		return regex, nil
+	}
+
+	regex, err := regexp.Compile(cleanPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	qe.regexCache[cleanPattern] = regex
+	return regex, nil
+}
+
+// convertUnsupportedRegexFeatures converts unsupported regex features to supported alternatives.
+// This function handles Go regexp package limitations by converting unsupported patterns
+// to approximate alternatives. Warnings are logged when conversions occur.
+//
+// Unsupported features that are converted:
+// - Negative lookbehind (?<!pattern): Removed entirely
+// - Positive lookahead (?=pattern): Converted to .*pattern
+// - Negative lookahead (?!pattern): Removed entirely
+//
+// See docs/regex_limitations.md for detailed documentation on limitations and alternatives.
+func (qe *QueryEngine) convertUnsupportedRegexFeatures(pattern string) string {
+	originalPattern := pattern
+	conversionWarnings := []string{}
+
+	// Convert negative lookbehind (?<!pattern) - simplified approach
+	if strings.Contains(pattern, "(?<!") {
+		// For patterns like "(?<!Process).*Data", we just match ".*Data"
+		// This is a simplified fallback that may match more results than intended
+		lookbehindPattern := regexp.MustCompile(`\(\?<![^)]+\)`)
+		matches := lookbehindPattern.FindAllString(pattern, -1)
+		pattern = lookbehindPattern.ReplaceAllString(pattern, "")
+
+		for _, match := range matches {
+			conversionWarnings = append(conversionWarnings,
+				fmt.Sprintf("negative lookbehind '%s' removed", match))
+		}
+	}
+
+	// Convert positive lookahead (?=pattern) - simplified approach
+	if strings.Contains(pattern, "(?=") {
+		// For patterns like "Handle(?=User)", we convert to "Handle.*User"
+		// This is approximate and may have different matching behavior due to greedy matching
+		lookaheadPattern := regexp.MustCompile(`\(\?=([^)]+)\)`)
+		matches := lookaheadPattern.FindAllStringSubmatch(pattern, -1)
+		pattern = lookaheadPattern.ReplaceAllString(pattern, ".*$1")
+
+		for _, match := range matches {
+			if len(match) >= LookAheadMatches {
+				conversionWarnings = append(conversionWarnings,
+					fmt.Sprintf("positive lookahead '(?=%s)' converted to '.*%s'", match[1], match[1]))
+			}
+		}
+	}
+
+	// Convert negative lookahead (?!pattern)
+	if strings.Contains(pattern, "(?!") {
+		// Remove the negative lookahead entirely (fallback behavior)
+		// This may match more results than intended
+		negLookaheadPattern := regexp.MustCompile(`\(\?![^)]+\)`)
+		matches := negLookaheadPattern.FindAllString(pattern, -1)
+		pattern = negLookaheadPattern.ReplaceAllString(pattern, "")
+
+		for _, match := range matches {
+			conversionWarnings = append(conversionWarnings,
+				fmt.Sprintf("negative lookahead '%s' removed", match))
+		}
+	}
+
+	// Log warnings if any conversions were made
+	if len(conversionWarnings) > 0 {
+		log.Printf("Regex pattern conversion warning: Original pattern '%s' contained unsupported features. Conversions: %s. "+
+			"This may affect matching behavior. See docs/regex_limitations.md for details.",
+			originalPattern, strings.Join(conversionWarnings, "; "))
+	}
+
+	return pattern
+}
+
+// convertUnsupportedRegexFeaturesWithError is like convertUnsupportedRegexFeatures but can return
+// an error instead of silently converting patterns when strictMode is true.
+//
+// Parameters:
+//   - pattern: The regex pattern to check and potentially convert
+//   - strictMode: If true, returns an error when unsupported features are detected
+//     If false, behaves like convertUnsupportedRegexFeatures with logging
+//
+// Returns the converted pattern and an error if strictMode is true and unsupported features were found.
+func (qe *QueryEngine) convertUnsupportedRegexFeaturesWithError(pattern string, strictMode bool) (string, error) {
+	originalPattern := pattern
+	conversionWarnings := []string{}
+	var unsupportedFeatures []string
+
+	// Process negative lookbehind
+	pattern = qe.processNegativeLookbehind(pattern, strictMode, &conversionWarnings, &unsupportedFeatures)
+
+	// Process positive lookahead
+	pattern = qe.processPositiveLookahead(pattern, strictMode, &conversionWarnings, &unsupportedFeatures)
+
+	// Process negative lookahead
+	pattern = qe.processNegativeLookahead(pattern, strictMode, &conversionWarnings, &unsupportedFeatures)
+
+	// Handle results
+	return qe.handleRegexConversionResults(originalPattern, pattern, strictMode, conversionWarnings, unsupportedFeatures)
+}
+
+// processLookaroundPattern is a generic helper for processing lookaround patterns
+func (qe *QueryEngine) processLookaroundPattern(
+	pattern,
+	checkString,
+	regexPattern,
+	patternName,
+	replacement string,
+	strictMode bool,
+	conversionWarnings, unsupportedFeatures *[]string,
+) string {
+	if !strings.Contains(pattern, checkString) {
+		return pattern
+	}
+
+	compiledPattern := regexp.MustCompile(regexPattern)
+	matches := compiledPattern.FindAllString(pattern, -1)
+
+	if len(matches) == 0 {
+		return pattern
+	}
+
+	if strictMode {
+		for _, match := range matches {
+			*unsupportedFeatures = append(*unsupportedFeatures,
+				fmt.Sprintf("%s '%s'", patternName, match))
+		}
+		return pattern
+	}
+
+	// Convert pattern
+	pattern = compiledPattern.ReplaceAllString(pattern, replacement)
+	for _, match := range matches {
+		if replacement == "" {
+			*conversionWarnings = append(*conversionWarnings,
+				fmt.Sprintf("%s '%s' removed", patternName, match))
+		} else {
+			*conversionWarnings = append(
+				*conversionWarnings,
+				fmt.Sprintf(
+					"%s '%s' converted to '%s'",
+					patternName,
+					match,
+					replacement,
+				),
+			)
+		}
+	}
+	return pattern
+}
+
+// processNegativeLookbehind handles negative lookbehind patterns
+func (qe *QueryEngine) processNegativeLookbehind(
+	pattern string,
+	strictMode bool,
+	conversionWarnings,
+	unsupportedFeatures *[]string,
+) string {
+	return qe.processLookaroundPattern(
+		pattern,
+		"(?<!",
+		`\(\?<![^)]+\)`,
+		"negative lookbehind",
+		"",
+		strictMode,
+		conversionWarnings,
+		unsupportedFeatures,
+	)
+}
+
+// processPositiveLookahead handles positive lookahead patterns
+func (qe *QueryEngine) processPositiveLookahead(pattern string, strictMode bool, conversionWarnings, unsupportedFeatures *[]string) string {
+	if !strings.Contains(pattern, "(?=") {
+		return pattern
+	}
+
+	lookaheadPattern := regexp.MustCompile(`\(\?=([^)]+)\)`)
+	matches := lookaheadPattern.FindAllStringSubmatch(pattern, -1)
+
+	if len(matches) == 0 {
+		return pattern
+	}
+
+	if strictMode {
+		for _, match := range matches {
+			if len(match) >= LookAheadMatches {
+				*unsupportedFeatures = append(*unsupportedFeatures,
+					fmt.Sprintf("positive lookahead '(?=%s)'", match[1]))
+			}
+		}
+		return pattern
+	}
+
+	// Convert pattern - this is more complex than the generic helper can handle
+	// because we need to preserve the captured group content
+	pattern = lookaheadPattern.ReplaceAllString(pattern, ".*$1")
+	for _, match := range matches {
+		if len(match) >= LookAheadMatches {
+			*conversionWarnings = append(
+				*conversionWarnings,
+				fmt.Sprintf(
+					"positive lookahead '(?=%s)' converted to '.*%s'",
+					match[1],
+					match[1],
+				),
+			)
+		}
+	}
+	return pattern
+}
+
+// processNegativeLookahead handles negative lookahead patterns
+func (qe *QueryEngine) processNegativeLookahead(
+	pattern string,
+	strictMode bool,
+	conversionWarnings,
+	unsupportedFeatures *[]string,
+) string {
+	return qe.processLookaroundPattern(
+		pattern,
+		"(?!",
+		`\(\?![^)]+\)`,
+		"negative lookahead",
+		"",
+		strictMode,
+		conversionWarnings,
+		unsupportedFeatures,
+	)
+}
+
+// handleRegexConversionResults handles the final result processing
+func (qe *QueryEngine) handleRegexConversionResults(
+	originalPattern, pattern string, strictMode bool, conversionWarnings, unsupportedFeatures []string,
+) (string, error) {
+	// Handle strict mode - return error if unsupported features found
+	if strictMode && len(unsupportedFeatures) > 0 {
+		return "", fmt.Errorf("unsupported regex features detected: %s. "+
+			"Use simpler patterns or see docs/regex_limitations.md for alternatives",
+			strings.Join(unsupportedFeatures, ", "))
+	}
+
+	// Log warnings if any conversions were made (non-strict mode)
+	if !strictMode && len(conversionWarnings) > 0 {
+		log.Printf("Regex pattern conversion warning: Original pattern '%s' contained unsupported features. Conversions: %s. "+
+			"This may affect matching behavior. See docs/regex_limitations.md for details.",
+			originalPattern, strings.Join(conversionWarnings, "; "))
+	}
+
+	return pattern, nil
 }
 
 func (qe *QueryEngine) applyTokenLimits(result *SearchResult, maxTokens int) {
