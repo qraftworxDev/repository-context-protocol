@@ -14,8 +14,8 @@ func TestNewRepoContextMCPServer(t *testing.T) {
 	}
 
 	// Test that server has expected fields initialized
-	if server.repoPath != "" {
-		t.Error("Initial repoPath should be empty")
+	if server.RepoPath != "" {
+		t.Error("Initial RepoPath should be empty")
 	}
 }
 
@@ -56,7 +56,7 @@ func TestRepoContextMCPServer_validateRepository(t *testing.T) {
 	}
 
 	// Test validation with non-existent path
-	server.repoPath = "/non/existent/path"
+	server.RepoPath = "/non/existent/path"
 	err = server.validateRepository()
 	if err == nil {
 		t.Error("validateRepository should fail with non-existent path")
