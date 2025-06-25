@@ -1,11 +1,38 @@
 # Active Context
 
 ## Current Work Focus
-**MCP Server Development: First Core Tool Complete**
+**MCP Server Development: Two Core Tools Complete**
 
-Successfully implemented the first production-ready MCP tool (`query_by_name`) with full functionality, comprehensive testing, and proper integration with the existing query engine.
+Successfully implemented two production-ready MCP tools (`query_by_name` and `query_by_pattern`) with full functionality, comprehensive testing, and proper integration with the existing query engine.
 
 ## Recent Changes
+
+### Phase 1.3: Core Tool Implementation - `query_by_pattern` Complete ✅
+
+#### Full Tool Implementation
+1. **Tool Definition**: Complete MCP tool schema with all parameters
+   - Required: `pattern` parameter for search patterns (glob/regex)
+   - Optional: `entity_type` for filtering (function, type, variable, constant)
+   - Optional: `include_callers`, `include_callees`, `include_types`, `max_tokens`
+2. **Handler Implementation**: Full `HandleQueryByPattern` functionality
+   - Parameter validation with entity type validation helper method
+   - Integration with `SearchByPatternWithOptions` from query engine
+   - Pattern support for glob, regex, wildcards, character classes, brace expansion
+   - Entity type filtering with proper validation
+3. **Tool Registration**: MCP-compliant tool registration with comprehensive description
+4. **Response Formatting**: JSON responses via helper methods with proper error handling
+
+#### Comprehensive Testing Suite
+- **Unit Tests**: Parameter validation, entity type validation, error handling
+- **Integration Tests**: Real repository data testing with diverse pattern types
+- **Helper Functions**: Extracted common test patterns to eliminate code duplication
+- **Lint Compliance**: Resolved all linting issues including function length and line length
+
+#### Key Technical Achievements
+- **Advanced Pattern Support**: Full glob and regex pattern matching capabilities
+- **Entity Type Filtering**: Granular filtering by function, type, variable, constant
+- **Code Quality**: Extracted helper methods to maintain function length limits
+- **Test Coverage**: Comprehensive validation and integration test coverage
 
 ### Phase 1.3: Core Tool Implementation - `query_by_name` Complete ✅
 
@@ -37,30 +64,38 @@ Successfully implemented the first production-ready MCP tool (`query_by_name`) w
 ## Current Status
 - ✅ MCP server foundation implemented and tested
 - ✅ **`query_by_name` tool 100% complete** - First production-ready tool
+- ✅ **`query_by_pattern` tool 100% complete** - Second production-ready tool with advanced pattern matching
 - ✅ Binary compilation successful (`repocontext-mcp`)
 - ✅ Tool registration pattern established for remaining tools
-- ✅ Integration test framework operational, 70% complete
+- ✅ Integration test framework operational, comprehensive testing in place
+- ✅ Code quality maintained with lint compliance
 
 ## Next Steps
 **Phase 1.3 Continuation**: Implement remaining core tools using established pattern:
-- `query_by_pattern` - Pattern-based search (glob/regex support)
 - `get_call_graph` - Call relationship analysis
 - `list_functions` - Repository function enumeration
 - `list_types` - Repository type enumeration
 
-**Technical Debt**: Address integration test mock request limitation (medium priority)
+**Phase 1 Completion**: With 2 of 5 core tools complete (40% progress), focus on completing remaining tools
 
 ## Technical Insights & Patterns
 
 ### Established Patterns for Next Tools
 1. **Tool Definition Pattern**: `mcp.NewTool(name, mcp.WithDescription(...), mcp.WithString(...), ...)`
 2. **Handler Pattern**: Repository validation → Parameter parsing → Query engine integration → Response formatting
-3. **Testing Pattern**: Unit tests for validation, integration tests for full workflow
+3. **Testing Pattern**: Unit tests for validation, integration tests for full workflow, helper functions for code reuse
 4. **Error Handling**: Use `mcp.NewToolResultError()` for errors, `formatSuccessResponse()` for success
+5. **Code Quality**: Extract helper methods to maintain function length limits, break long lines appropriately
 
 ### MCP Library Usage
 - Parameter parsing: `request.GetString()`, `request.GetBool()`, `request.GetInt()`
 - Tool definition: Property options like `mcp.Required()`, `mcp.Description()`
 - Response formatting: `mcp.NewToolResultText()`, `mcp.NewToolResultError()`
 
-The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a robust foundation for completing the remaining Phase 1 tools.
+### Advanced Features Implemented
+- **Pattern Matching**: Full support for glob patterns, regex patterns, wildcards, character classes
+- **Entity Type Filtering**: Granular filtering capabilities with validation
+- **Parameter Validation**: Robust validation patterns with helper methods
+- **Test Code Reuse**: Helper functions to eliminate duplication and improve maintainability
+
+The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a robust and scalable foundation for completing the remaining Phase 1 tools.
