@@ -2,11 +2,20 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"repository-context-protocol/internal/index"
 
 	"github.com/mark3labs/mcp-go/mcp"
+)
+
+const (
+	constFilePermission600 = 0600
+	constFilePermission755 = 0755
 )
 
 // Advanced Query Tools - Phase 2.1 Implementation
@@ -467,3 +476,171 @@ func (p *ListEntitiesParams) GetIncludeCallers() bool { return false } // Not ap
 func (p *ListEntitiesParams) GetIncludeCallees() bool { return false } // Not applicable for list operations
 func (p *ListEntitiesParams) GetIncludeTypes() bool   { return false } // Not applicable for list operations
 func (p *ListEntitiesParams) GetMaxTokens() int       { return p.MaxTokens }
+
+// Repository Management Tools - Phase 2.2 Implementation
+
+// RegisterRepositoryManagementTools registers repository management tools
+func (s *RepoContextMCPServer) RegisterRepositoryManagementTools() []mcp.Tool {
+	return []mcp.Tool{
+		s.createInitializeRepositoryTool(),
+	}
+}
+
+// createInitializeRepositoryTool creates the initialize_repository tool
+func (s *RepoContextMCPServer) createInitializeRepositoryTool() mcp.Tool {
+	return mcp.NewTool("initialize_repository",
+		mcp.WithDescription("Initialize a repository for semantic indexing by creating .repocontext directory structure"),
+		mcp.WithString("path", mcp.Description("Path to repository directory (default: current directory)")),
+	)
+}
+
+// HandleInitializeRepository handles the initialize_repository tool request
+func (s *RepoContextMCPServer) HandleInitializeRepository(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Parse parameters
+	params := s.parseInitializeRepositoryParameters(request)
+
+	// Determine target path
+	targetPath, err := s.determineInitializationPath(params.Path)
+	if err != nil {
+		return s.FormatErrorResponse("initialize_repository", err), nil
+	}
+
+	// Validate path exists
+	if err = s.validateInitializationPath(targetPath); err != nil {
+		return s.FormatErrorResponse("initialize_repository", err), nil
+	}
+
+	// Perform initialization
+	result, err := s.initializeRepositoryStructure(targetPath)
+	if err != nil {
+		return s.FormatErrorResponse("initialize_repository", err), nil
+	}
+
+	// Return success response
+	return s.FormatSuccessResponse(result), nil
+}
+
+// parseInitializeRepositoryParameters extracts and validates parameters for initialize_repository
+func (s *RepoContextMCPServer) parseInitializeRepositoryParameters(request mcp.CallToolRequest) *InitializeRepositoryParams {
+	path := request.GetString("path", "")
+
+	return &InitializeRepositoryParams{
+		Path: path,
+	}
+}
+
+// determineInitializationPath determines the actual path to initialize
+func (s *RepoContextMCPServer) determineInitializationPath(providedPath string) (string, error) {
+	if providedPath == "" {
+		// Use current directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current directory: %w", err)
+		}
+		return currentDir, nil
+	}
+
+	// Use provided path
+	return filepath.Abs(providedPath)
+}
+
+// validateInitializationPath validates that the path is suitable for initialization
+func (s *RepoContextMCPServer) validateInitializationPath(path string) error {
+	// Check if path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist: %s", path)
+	}
+
+	// Check if path is a directory
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to check path: %w", err)
+	}
+
+	if !fileInfo.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+
+	return nil
+}
+
+// initializeRepositoryStructure creates the repository structure and returns initialization result
+func (s *RepoContextMCPServer) initializeRepositoryStructure(path string) (*InitializationResult, error) {
+	repoContextPath := filepath.Join(path, ".repocontext")
+
+	// Check if already initialized
+	if _, err := os.Stat(repoContextPath); err == nil {
+		return &InitializationResult{
+			Path:               path,
+			RepoContextPath:    repoContextPath,
+			AlreadyInitialized: true,
+			Message:            "Repository already initialized",
+			CreatedDirectories: []string{},
+		}, nil
+	}
+
+	// Create .repocontext directory
+	if err := os.MkdirAll(repoContextPath, constFilePermission755); err != nil {
+		return nil, fmt.Errorf("failed to create .repocontext directory: %w", err)
+	}
+
+	createdDirs := []string{repoContextPath}
+
+	// Create chunks subdirectory
+	chunksPath := filepath.Join(repoContextPath, "chunks")
+	if err := os.MkdirAll(chunksPath, constFilePermission755); err != nil {
+		return nil, fmt.Errorf("failed to create chunks directory: %w", err)
+	}
+
+	createdDirs = append(createdDirs, chunksPath)
+
+	// Create manifest.json file (basic structure)
+	manifestPath := filepath.Join(repoContextPath, "manifest.json")
+	if err := s.createInitialManifest(manifestPath); err != nil {
+		return nil, fmt.Errorf("failed to create initial manifest: %w", err)
+	}
+
+	return &InitializationResult{
+		Path:               path,
+		RepoContextPath:    repoContextPath,
+		AlreadyInitialized: false,
+		Message:            "Repository initialized successfully",
+		CreatedDirectories: createdDirs,
+		CreatedFiles:       []string{manifestPath},
+	}, nil
+}
+
+// createInitialManifest creates the initial manifest.json file
+func (s *RepoContextMCPServer) createInitialManifest(manifestPath string) error {
+	manifest := map[string]interface{}{
+		"version":     "1.0",
+		"created_at":  time.Now().UTC().Format(time.RFC3339),
+		"description": "Repository context index manifest",
+	}
+
+	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest: %w", err)
+	}
+
+	if err := os.WriteFile(manifestPath, manifestJSON, constFilePermission600); err != nil {
+		return fmt.Errorf("failed to write manifest file: %w", err)
+	}
+
+	return nil
+}
+
+// InitializeRepositoryParams holds parameters for initialize_repository
+type InitializeRepositoryParams struct {
+	Path string
+}
+
+// InitializationResult holds the result of repository initialization
+type InitializationResult struct {
+	Path               string   `json:"path"`
+	RepoContextPath    string   `json:"repo_context_path"`
+	AlreadyInitialized bool     `json:"already_initialized"`
+	Message            string   `json:"message"`
+	CreatedDirectories []string `json:"created_directories"`
+	CreatedFiles       []string `json:"created_files,omitempty"`
+}
