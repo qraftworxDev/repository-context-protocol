@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"repository-context-protocol/internal/index"
@@ -409,6 +410,295 @@ func TestInitializeRepository(t *testing.T) {
 		}
 		if manifest["created_at"] == nil {
 			t.Error("Expected created_at field in manifest")
+		}
+	})
+}
+
+// TestBuildIndex tests the build_index tool functionality
+func TestBuildIndex(t *testing.T) {
+	t.Run("successful index build in current directory", func(t *testing.T) {
+		// Create a temporary directory to simulate repository
+		tempDir, err := os.MkdirTemp("", "build_index_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		// Initialize repository first
+		server := NewRepoContextMCPServer()
+		result, err := server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+		if result.AlreadyInitialized {
+			t.Fatal("Expected new initialization")
+		}
+
+		// Create a simple Go file for testing
+		goFile := filepath.Join(tempDir, "main.go")
+		goContent := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, World!")
+}
+
+func helper() string {
+	return "helper"
+}
+`
+		err = os.WriteFile(goFile, []byte(goContent), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file: %v", err)
+		}
+
+		// Change to temp directory
+		originalDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get current directory: %v", err)
+		}
+		defer func() {
+			if err = os.Chdir(originalDir); err != nil {
+				t.Fatalf("Failed to change back to original directory: %v", err)
+			}
+		}()
+
+		if err = os.Chdir(tempDir); err != nil {
+			t.Fatalf("Failed to change to temp directory: %v", err)
+		}
+
+		// Create a simple mock request without path parameter
+		request := mcp.CallToolRequest{}
+
+		buildResult, err := server.HandleBuildIndex(context.Background(), request)
+
+		// Verify success
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if buildResult == nil {
+			t.Fatal("Expected result, got nil")
+		}
+		if buildResult.IsError {
+			t.Errorf("Expected success result, got error: %v", buildResult.Content)
+		}
+
+		// Verify index files were created
+		indexPath := filepath.Join(tempDir, ".repocontext", "index.db")
+		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+			t.Error("Expected index.db to be created")
+		}
+	})
+
+	t.Run("successful index build with custom path", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "build_custom_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository first
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Create a simple Go file for testing
+		goFile := filepath.Join(tempDir, "service.go")
+		goContent := `package main
+
+type Service struct {
+	name string
+}
+
+func (s *Service) GetName() string {
+	return s.name
+}
+
+func NewService(name string) *Service {
+	return &Service{name: name}
+}
+`
+		err = os.WriteFile(goFile, []byte(goContent), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file: %v", err)
+		}
+
+		// Test parameter parsing logic
+		params := &BuildIndexParams{
+			Path:    tempDir,
+			Verbose: true,
+		}
+
+		if params.Path != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, params.Path)
+		}
+		if !params.Verbose {
+			t.Error("Expected verbose to be true")
+		}
+
+		// Test path determination
+		determinedPath, err := server.determineBuildPath(params.Path)
+		if err != nil {
+			t.Fatalf("Failed to determine path: %v", err)
+		}
+
+		// Test repository validation
+		err = server.validateRepositoryForBuild(determinedPath)
+		if err != nil {
+			t.Fatalf("Repository validation failed: %v", err)
+		}
+
+		// Test index building
+		result, err := server.buildRepositoryIndex(determinedPath, params.Verbose)
+		if err != nil {
+			t.Fatalf("Index build failed: %v", err)
+		}
+
+		if result.FilesProcessed == 0 {
+			t.Error("Expected files to be processed")
+		}
+		if result.Success != true {
+			t.Error("Expected successful build")
+		}
+	})
+
+	t.Run("build index on uninitialized repository", func(t *testing.T) {
+		// Create a temporary directory without initializing
+		tempDir, err := os.MkdirTemp("", "build_uninit_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Test repository validation on uninitialized repository
+		err = server.validateRepositoryForBuild(tempDir)
+		if err == nil {
+			t.Error("Expected error for uninitialized repository")
+		}
+		if !strings.Contains(err.Error(), "not initialized") {
+			t.Errorf("Expected 'not initialized' error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid path validation", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test with non-existent path
+		err := server.validateRepositoryForBuild("/nonexistent/invalid/path")
+		if err == nil {
+			t.Error("Expected error for non-existent path")
+		}
+
+		// Test with file instead of directory
+		tempFile, err := os.CreateTemp("", "not_a_dir")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		tempFile.Close()
+
+		err = server.validateRepositoryForBuild(tempFile.Name())
+		if err == nil {
+			t.Error("Expected error for file path instead of directory")
+		}
+	})
+
+	t.Run("path determination logic", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test empty path (should use current directory)
+		path, err := server.determineBuildPath("")
+		if err != nil {
+			t.Errorf("Failed to determine path for empty string: %v", err)
+		}
+		if path == "" {
+			t.Error("Expected non-empty path for empty input")
+		}
+
+		// Test custom path
+		customPath := "/tmp/custom"
+		path, err = server.determineBuildPath(customPath)
+		if err != nil {
+			t.Errorf("Failed to determine path for custom path: %v", err)
+		}
+		if !filepath.IsAbs(path) {
+			t.Error("Expected absolute path to be returned")
+		}
+	})
+
+	t.Run("verbose mode statistics", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "build_verbose_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Create multiple test files
+		goFile1 := filepath.Join(tempDir, "file1.go")
+		goContent1 := `package main
+
+func function1() {
+	// Function 1
+}
+
+type Type1 struct {
+	Field1 string
+}
+`
+		err = os.WriteFile(goFile1, []byte(goContent1), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 1: %v", err)
+		}
+
+		goFile2 := filepath.Join(tempDir, "file2.go")
+		goContent2 := `package main
+
+func function2() {
+	// Function 2
+}
+
+const Constant1 = "value"
+var Variable1 string
+`
+		err = os.WriteFile(goFile2, []byte(goContent2), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 2: %v", err)
+		}
+
+		// Test index building with verbose mode
+		result, err := server.buildRepositoryIndex(tempDir, true)
+		if err != nil {
+			t.Fatalf("Index build failed: %v", err)
+		}
+
+		// Verify verbose statistics
+		if result.FilesProcessed < 2 {
+			t.Errorf("Expected at least 2 files processed, got %d", result.FilesProcessed)
+		}
+		if result.FunctionsIndexed < 2 {
+			t.Errorf("Expected at least 2 functions indexed, got %d", result.FunctionsIndexed)
+		}
+		if result.TypesIndexed < 1 {
+			t.Errorf("Expected at least 1 type indexed, got %d", result.TypesIndexed)
+		}
+		if result.Duration.Seconds() <= 0 {
+			t.Error("Expected positive build duration")
 		}
 	})
 }

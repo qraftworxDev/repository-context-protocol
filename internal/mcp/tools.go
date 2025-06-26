@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -483,6 +484,7 @@ func (p *ListEntitiesParams) GetMaxTokens() int       { return p.MaxTokens }
 func (s *RepoContextMCPServer) RegisterRepositoryManagementTools() []mcp.Tool {
 	return []mcp.Tool{
 		s.createInitializeRepositoryTool(),
+		s.createBuildIndexTool(),
 	}
 }
 
@@ -491,6 +493,15 @@ func (s *RepoContextMCPServer) createInitializeRepositoryTool() mcp.Tool {
 	return mcp.NewTool("initialize_repository",
 		mcp.WithDescription("Initialize a repository for semantic indexing by creating .repocontext directory structure"),
 		mcp.WithString("path", mcp.Description("Path to repository directory (default: current directory)")),
+	)
+}
+
+// createBuildIndexTool creates the build_index tool
+func (s *RepoContextMCPServer) createBuildIndexTool() mcp.Tool {
+	return mcp.NewTool("build_index",
+		mcp.WithDescription("Build semantic index for the repository by parsing source code files and creating searchable chunks"),
+		mcp.WithString("path", mcp.Description("Path to repository directory (default: current directory)")),
+		mcp.WithBoolean("verbose", mcp.Description("Enable verbose output with detailed build statistics")),
 	)
 }
 
@@ -628,6 +639,149 @@ func (s *RepoContextMCPServer) createInitialManifest(manifestPath string) error 
 	}
 
 	return nil
+}
+
+// HandleBuildIndex handles the build_index tool request
+func (s *RepoContextMCPServer) HandleBuildIndex(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Parse parameters
+	params := s.parseBuildIndexParameters(request)
+
+	// Determine target path
+	targetPath, err := s.determineBuildPath(params.Path)
+	if err != nil {
+		return s.FormatErrorResponse("build_index", err), nil
+	}
+
+	// Validate repository is initialized
+	if err = s.validateRepositoryForBuild(targetPath); err != nil {
+		return s.FormatErrorResponse("build_index", err), nil
+	}
+
+	// Perform index build
+	result, err := s.buildRepositoryIndex(targetPath, params.Verbose)
+	if err != nil {
+		return s.FormatErrorResponse("build_index", err), nil
+	}
+
+	// Return success response
+	return s.FormatSuccessResponse(result), nil
+}
+
+// parseBuildIndexParameters extracts and validates parameters for build_index
+func (s *RepoContextMCPServer) parseBuildIndexParameters(request mcp.CallToolRequest) *BuildIndexParams {
+	path := request.GetString("path", "")
+	verbose := request.GetBool("verbose", false)
+
+	return &BuildIndexParams{
+		Path:    path,
+		Verbose: verbose,
+	}
+}
+
+// determineBuildPath determines the actual path for index building
+func (s *RepoContextMCPServer) determineBuildPath(providedPath string) (string, error) {
+	if providedPath == "" {
+		// Use current directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current directory: %w", err)
+		}
+		return currentDir, nil
+	}
+
+	// Use provided path
+	return filepath.Abs(providedPath)
+}
+
+// validateRepositoryForBuild validates that the repository is initialized and ready for build
+func (s *RepoContextMCPServer) validateRepositoryForBuild(path string) error {
+	// Check if path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist: %s", path)
+	}
+
+	// Check if path is a directory
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to check path: %w", err)
+	}
+
+	if !fileInfo.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+
+	// Check if repository is initialized
+	repoContextPath := filepath.Join(path, ".repocontext")
+	if _, err := os.Stat(repoContextPath); os.IsNotExist(err) {
+		return fmt.Errorf("repository not initialized - run initialize_repository first")
+	}
+
+	// Check if manifest.json exists
+	manifestPath := filepath.Join(repoContextPath, "manifest.json")
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		return fmt.Errorf("manifest.json not found - repository may be corrupted, try initialize_repository")
+	}
+
+	return nil
+}
+
+// buildRepositoryIndex performs the actual index building and returns build result
+func (s *RepoContextMCPServer) buildRepositoryIndex(path string, verbose bool) (*BuildIndexResult, error) {
+	// Create and initialize the IndexBuilder
+	builder := index.NewIndexBuilder(path)
+	if err := builder.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize index builder: %w", err)
+	}
+	defer func() {
+		if closeErr := builder.Close(); closeErr != nil {
+			// Log warning but don't fail the operation
+			log.Printf("Failed to close index builder: %v", closeErr)
+		}
+	}()
+
+	// Build the index
+	stats, err := builder.BuildIndex()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build index: %w", err)
+	}
+
+	// Create result with build statistics
+	result := &BuildIndexResult{
+		Path:             path,
+		Success:          true,
+		Message:          "Index built successfully",
+		FilesProcessed:   stats.FilesProcessed,
+		FunctionsIndexed: stats.FunctionsIndexed,
+		TypesIndexed:     stats.TypesIndexed,
+		VariablesIndexed: stats.VariablesIndexed,
+		ConstantsIndexed: stats.ConstantsIndexed,
+		CallsIndexed:     stats.CallsIndexed,
+		Duration:         stats.Duration,
+		Verbose:          verbose,
+	}
+
+	return result, nil
+}
+
+// BuildIndexParams holds parameters for build_index
+type BuildIndexParams struct {
+	Path    string
+	Verbose bool
+}
+
+// BuildIndexResult holds the result of index building
+type BuildIndexResult struct {
+	Path             string        `json:"path"`
+	Success          bool          `json:"success"`
+	Message          string        `json:"message"`
+	FilesProcessed   int           `json:"files_processed"`
+	FunctionsIndexed int           `json:"functions_indexed"`
+	TypesIndexed     int           `json:"types_indexed"`
+	VariablesIndexed int           `json:"variables_indexed"`
+	ConstantsIndexed int           `json:"constants_indexed"`
+	CallsIndexed     int           `json:"calls_indexed"`
+	Duration         time.Duration `json:"duration"`
+	Verbose          bool          `json:"verbose"`
 }
 
 // InitializeRepositoryParams holds parameters for initialize_repository
