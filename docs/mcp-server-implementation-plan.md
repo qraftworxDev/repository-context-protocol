@@ -62,7 +62,7 @@ import (
     "os"
 
     "github.com/mark3labs/mcp-go/mcp"
-    "repository-context-protocol/internal/mcp"
+    mcpserver "repository-context-protocol/internal/mcp"
 )
 
 func main() {
@@ -85,6 +85,7 @@ import (
     "fmt"
     "io"
     "os"
+    "path/filepath"
 
     "github.com/mark3labs/mcp-go/mcp"
     "repository-context-protocol/internal/index"
