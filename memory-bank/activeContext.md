@@ -1,11 +1,41 @@
 # Active Context
 
 ## Current Work Focus
-**MCP Server Development: Two Core Tools Complete**
+**MCP Server Development: Three Core Tools Complete**
 
-Successfully implemented two production-ready MCP tools (`query_by_name` and `query_by_pattern`) with full functionality, comprehensive testing, and proper integration with the existing query engine.
+Successfully implemented three production-ready MCP tools (`query_by_name`, `query_by_pattern`, and `get_call_graph`) with full functionality, comprehensive testing, and proper integration with the existing query engine.
 
 ## Recent Changes
+
+### Phase 1.3: Core Tool Implementation - `get_call_graph` Complete ✅
+
+#### Full Tool Implementation
+1. **Tool Definition**: Complete MCP tool schema with all parameters
+   - Required: `function_name` parameter for function to analyze
+   - Optional: `max_depth` for maximum traversal depth (default: 2)
+   - Optional: `include_callers`, `include_callees` for selective inclusion
+   - Optional: `max_tokens` for response size control
+2. **Handler Implementation**: Full `HandleGetCallGraph` functionality
+   - Parameter validation with function name requirement
+   - Integration with `GetCallGraphWithOptions` from query engine
+   - Default depth handling and parameter parsing with MCP library helpers
+   - Selective caller/callee inclusion based on parameters
+3. **Tool Registration**: MCP-compliant tool registration with comprehensive description
+4. **Response Formatting**: JSON responses via helper methods with proper error handling
+
+#### Comprehensive Testing Suite
+- **Unit Tests**: Parameter validation, error handling, repository validation
+- **Integration Tests**: Real repository data testing with various call graph scenarios
+- **TDD Approach**: Tests written first, implementation driven by test requirements
+- **Test Coverage**: All error paths, success scenarios, and parameter combinations covered
+- **Lint Compliance**: Code passes `go vet` with no issues
+
+#### Key Technical Achievements
+- **Call Graph Analysis**: Full support for function call relationship analysis
+- **Depth Control**: Configurable traversal depth with sensible defaults
+- **Selective Inclusion**: Granular control over callers vs callees inclusion
+- **Code Quality**: Follows established patterns from previous tool implementations
+- **Test Coverage**: Comprehensive validation and integration test coverage
 
 ### Phase 1.3: Core Tool Implementation - `query_by_pattern` Complete ✅
 
@@ -65,6 +95,7 @@ Successfully implemented two production-ready MCP tools (`query_by_name` and `qu
 - ✅ MCP server foundation implemented and tested
 - ✅ **`query_by_name` tool 100% complete** - First production-ready tool
 - ✅ **`query_by_pattern` tool 100% complete** - Second production-ready tool with advanced pattern matching
+- ✅ **`get_call_graph` tool 100% complete** - Third production-ready tool with call relationship analysis
 - ✅ Binary compilation successful (`repocontext-mcp`)
 - ✅ Tool registration pattern established for remaining tools
 - ✅ Integration test framework operational, comprehensive testing in place
@@ -72,11 +103,10 @@ Successfully implemented two production-ready MCP tools (`query_by_name` and `qu
 
 ## Next Steps
 **Phase 1.3 Continuation**: Implement remaining core tools using established pattern:
-- `get_call_graph` - Call relationship analysis
 - `list_functions` - Repository function enumeration
 - `list_types` - Repository type enumeration
 
-**Phase 1 Completion**: With 2 of 5 core tools complete (40% progress), focus on completing remaining tools
+**Phase 1 Completion**: With 3 of 5 core tools complete (60% progress), focus on completing remaining tools
 
 ## Technical Insights & Patterns
 
@@ -95,6 +125,7 @@ Successfully implemented two production-ready MCP tools (`query_by_name` and `qu
 ### Advanced Features Implemented
 - **Pattern Matching**: Full support for glob patterns, regex patterns, wildcards, character classes
 - **Entity Type Filtering**: Granular filtering capabilities with validation
+- **Call Graph Analysis**: Comprehensive function relationship analysis with depth control
 - **Parameter Validation**: Robust validation patterns with helper methods
 - **Test Code Reuse**: Helper functions to eliminate duplication and improve maintainability
 

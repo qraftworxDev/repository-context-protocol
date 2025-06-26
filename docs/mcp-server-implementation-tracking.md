@@ -9,7 +9,7 @@
 
 | Phase | Status | Start Date | Complete Date | Duration | Progress |
 |-------|--------|------------|---------------|----------|----------|
-| **Phase 1**: Foundation & Core Tools | 🔄 In Progress | Jun 25, 2024 | - | Week 1-2 | 60% |
+| **Phase 1**: Foundation & Core Tools | 🔄 In Progress | Jun 25, 2024 | - | Week 1-2 | 72% |
 | **Phase 2**: Advanced Query Tools | ⏸️ Pending | - | - | Week 3 | 0% |
 | **Phase 3**: Enhanced Analysis Tools | ⏸️ Pending | - | - | Week 4 | 0% |
 | **Phase 4**: Integration & Testing | ⏸️ Pending | - | - | Week 5 | 0% |
@@ -71,11 +71,11 @@
   - [x] Pattern validation (glob/regex)
   - [x] Handler implementation
   - [x] Response formatting
-- [ ] `get_call_graph` - Retrieve function call relationships
-  - [ ] Tool definition and schema
-  - [ ] Depth parameter handling
-  - [ ] Handler implementation
-  - [ ] Response formatting
+- [x] `get_call_graph` - Retrieve function call relationships
+  - [x] Tool definition and schema
+  - [x] Depth parameter handling
+  - [x] Handler implementation
+  - [x] Response formatting
 - [ ] `list_functions` - List all functions in repository
   - [ ] Tool definition and schema
   - [ ] Handler implementation
@@ -87,9 +87,9 @@
   - [ ] Pagination support
   - [ ] Response formatting
 
-**Progress:** 8/20 tasks complete (40%)
+**Progress:** 12/20 tasks complete (60%)
 **Blockers:** None
-**Notes:** ✅ `query_by_name` and `query_by_pattern` fully implemented with comprehensive testing
+**Notes:** ✅ `query_by_name`, `query_by_pattern`, and `get_call_graph` fully implemented with comprehensive testing
 
 ### Phase 1 Testing
 - [x] Unit tests for server initialization
@@ -97,7 +97,7 @@
 - [x] JSON-RPC protocol compliance testing
 - [x] Error handling validation
 
-**Phase 1 Total Progress:** 32/36 tasks complete (89%)
+**Phase 1 Total Progress:** 36/40 tasks complete (90%)
 
 ---
 
@@ -373,14 +373,14 @@
 **In Progress:** 0
 **Remaining:** 154
 
-**Overall Progress:** 89% (Phase 1: 89% complete)
+**Overall Progress:** 90% (Phase 1: 90% complete)
 
 **Current Blockers:** None
 
 **Next Actions:**
 1. ✅ ~~Implement first core tool (query_by_name)~~ - **COMPLETE**
 2. ✅ ~~Implement `query_by_pattern` tool using established pattern~~ - **COMPLETE**
-3. Implement `get_call_graph` tool
+3. ✅ ~~Implement `get_call_graph` tool~~ - **COMPLETE**
 4. Implement `list_functions` and `list_types` tools
 5. Complete Phase 1 testing and validation
 
@@ -393,6 +393,7 @@
 | Dec 26, 2024 | Initial | Created tracking document | Baseline established |
 | Dec 26, 2024 | Phase 1.3 | Completed `query_by_name` tool | First production-ready MCP tool implemented with full functionality, testing, and query engine integration |
 | Dec 26, 2024 | Phase 1.3 | Completed `query_by_pattern` tool | Second production-ready MCP tool with pattern matching, entity type filtering, comprehensive testing, and lint compliance |
+| Dec 26, 2024 | Phase 1.3 | Completed `get_call_graph` tool | Third production-ready MCP tool with call graph analysis, depth control, selective inclusion, comprehensive TDD testing, and lint compliance |
 
 ---
 
