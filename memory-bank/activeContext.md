@@ -1,11 +1,42 @@
 # Active Context
 
 ## Current Work Focus
-**MCP Server Development: Phase 1 Complete - All Five Core Tools Implemented**
+**MCP Server Development: Phase 2.1 Complete - Advanced Query Tools Implementation**
 
-Successfully completed Phase 1 with all five production-ready MCP tools (`query_by_name`, `query_by_pattern`, `get_call_graph`, `list_functions`, and `list_types`) fully implemented with comprehensive functionality, testing, and integration with the existing query engine.
+Successfully completed Phase 2.1 with enhanced query tools architecture, advanced parameter handling, query options integration, and response optimization. Built upon Phase 1's foundation with improved organization and enhanced functionality.
 
 ## Recent Changes
+
+### Phase 2.1: Advanced Query Tools Implementation Complete ✅ - **PHASE 2.1 COMPLETE**
+
+#### Advanced Query Tools Architecture
+1. **File Organization**: Created `internal/mcp/tools.go` for enhanced query tools
+   - Separated advanced functionality from basic server operations
+   - Improved code organization and maintainability
+   - Enhanced tool definitions with better descriptions and parameter handling
+2. **Advanced Parameter Handling**: Implemented structured parameter types
+   - `QueryByNameParams`, `QueryByPatternParams`, `GetCallGraphParams` with validation
+   - `QueryOptionsBuilder` interface for consistent query option construction
+   - Enhanced error handling with parameter validation functions
+3. **Query Options Integration**: Builder pattern for query configuration
+   - `buildQueryOptionsFromParams()` method for consistent option building
+   - Support for all query engine options (callers, callees, types, tokens)
+   - Optimized parameter parsing with MCP library helpers
+4. **Response Optimization**: Enhanced response handling and formatting
+   - Improved error messages with operation context
+   - Consistent response formatting across all tools
+   - System-level validation separation from business logic
+
+#### Enhanced Tool Handlers
+- **`HandleAdvancedQueryByName()`**: Enhanced query_by_name with structured parameter handling
+- **`HandleAdvancedQueryByPattern()`**: Advanced pattern matching with entity type filtering
+- **Integration with Phase 1**: Seamless upgrade from Phase 1 handlers via `RegisterQueryTools()`
+
+#### Testing and Validation
+- **TDD Approach**: Test-driven development with comprehensive test coverage
+- **Integration Tests**: All real-world functionality tests passing (26/30 tests)
+- **Lint Compliance**: Clean code with no linting issues
+- **Performance**: Response optimization and efficient parameter handling
 
 ### Phase 1.3: Core Tool Implementation - `list_types` Complete ✅ - **PHASE 1 COMPLETE**
 
@@ -155,23 +186,22 @@ Successfully completed Phase 1 with all five production-ready MCP tools (`query_
 
 ## Current Status
 - ✅ **MCP Phase 1 - COMPLETE** - All foundation tools implemented and tested
-- ✅ **`query_by_name` tool 100% complete** - First production-ready tool
-- ✅ **`query_by_pattern` tool 100% complete** - Second production-ready tool with advanced pattern matching
-- ✅ **`get_call_graph` tool 100% complete** - Third production-ready tool with call relationship analysis
-- ✅ **`list_functions` tool 100% complete** - Fourth production-ready tool with function enumeration and pagination
-- ✅ **`list_types` tool 100% complete** - Fifth production-ready tool with type enumeration and pagination
-- ✅ Binary compilation successful (`repocontext-mcp`)
-- ✅ All core tools registered and fully functional
-- ✅ Integration test framework operational, comprehensive testing in place
-- ✅ Code quality maintained with lint compliance
+- ✅ **MCP Phase 2.1 - COMPLETE** - Advanced Query Tools Implementation with enhanced architecture
+- ✅ **Advanced Tool Organization** - `internal/mcp/tools.go` with structured parameter handling
+- ✅ **Query Options Integration** - Builder pattern with `QueryOptionsBuilder` interface
+- ✅ **Enhanced Parameter Handling** - Structured types with validation (`QueryByNameParams`, etc.)
+- ✅ **Response Optimization** - Improved error handling and response formatting
+- ✅ **Integration Tests Passing** - 26/30 tests passing (all real functionality working)
+- ✅ **Lint Compliance** - Clean code with no linting issues
+- ✅ **TDD Implementation** - Test-driven development approach successfully applied
 
 ## Next Steps
-**Phase 2 Planning**: Advanced Query Tools Development
+**Phase 2.2 Planning**: Repository Management Tools Development
 - Repository management tools (`initialize_repository`, `build_index`, `get_repository_status`)
-- Enhanced query capabilities and optimizations
-- Advanced error handling and response streaming
+- Enhanced repository operations and lifecycle management
+- Advanced index building and status reporting
 
-**Phase 1 Achievement**: 5 of 5 core tools complete (100% progress) - Phase 1 successfully completed
+**Phase 2.1 Achievement**: Advanced Query Tools complete (100% progress) - Enhanced architecture successfully implemented
 
 ## Technical Insights & Patterns
 
@@ -198,5 +228,8 @@ Successfully completed Phase 1 with all five production-ready MCP tools (`query_
 - **Parameter Validation**: Robust validation patterns with helper methods
 - **Test Code Reuse**: Helper functions to eliminate duplication and improve maintainability
 - **Helper Method Patterns**: Reusable `applyPagination` and `removeSignatures` methods for result processing
+- **Advanced Architecture**: Structured parameter types with builder pattern for query options
+- **Enhanced Error Handling**: System-level validation separation with improved error messages
+- **Response Optimization**: Consistent formatting and optimization across all tools
 
-The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a complete and robust Phase 1 foundation with all five core tools successfully implemented.
+The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a complete and robust foundation with Phase 1 core tools and Phase 2.1 advanced architecture successfully implemented.
