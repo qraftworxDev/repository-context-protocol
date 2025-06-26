@@ -1,11 +1,42 @@
 # Active Context
 
 ## Current Work Focus
-**MCP Server Development: Three Core Tools Complete**
+**MCP Server Development: Four Core Tools Complete**
 
-Successfully implemented three production-ready MCP tools (`query_by_name`, `query_by_pattern`, and `get_call_graph`) with full functionality, comprehensive testing, and proper integration with the existing query engine.
+Successfully implemented four production-ready MCP tools (`query_by_name`, `query_by_pattern`, `get_call_graph`, and `list_functions`) with full functionality, comprehensive testing, and proper integration with the existing query engine.
 
 ## Recent Changes
+
+### Phase 1.3: Core Tool Implementation - `list_functions` Complete ✅
+
+#### Full Tool Implementation
+1. **Tool Definition**: Complete MCP tool schema with all parameters
+   - Optional: `max_tokens` parameter for response size control (default: 2000)
+   - Optional: `include_signatures` for function signature inclusion (default: true)
+   - Optional: `limit` for maximum number of functions to return (0 for no limit)
+   - Optional: `offset` for pagination support (skip N functions)
+2. **Handler Implementation**: Full `HandleListFunctions` functionality
+   - Parameter validation with proper defaults
+   - Integration with `SearchByTypeWithOptions` from query engine
+   - Pagination support via `applyPagination` helper method
+   - Signature filtering via `removeSignatures` helper method
+3. **Tool Registration**: MCP-compliant tool registration with comprehensive description
+4. **Response Formatting**: JSON responses via helper methods with proper error handling
+
+#### Comprehensive Testing Suite
+- **Unit Tests**: Parameter validation, default parameter handling, error handling, repository validation
+- **Integration Tests**: Real repository data testing with function enumeration and pagination
+- **TDD Approach**: Tests written first, implementation driven by test requirements
+- **Test Coverage**: All error paths, success scenarios, pagination, and signature filtering covered
+- **Lint Compliance**: Code passes `go vet` with no issues
+
+#### Key Technical Achievements
+- **Function Enumeration**: Complete listing of all functions in repository via `SearchByType("function")`
+- **Pagination Support**: Configurable limit and offset for large repositories
+- **Signature Control**: Optional inclusion/exclusion of function signatures to reduce response size
+- **Helper Methods**: Reusable `applyPagination` and `removeSignatures` methods
+- **Code Quality**: Follows established patterns from previous tool implementations
+- **Test Coverage**: Comprehensive validation and integration test coverage including pagination and signature filtering
 
 ### Phase 1.3: Core Tool Implementation - `get_call_graph` Complete ✅
 
@@ -96,17 +127,17 @@ Successfully implemented three production-ready MCP tools (`query_by_name`, `que
 - ✅ **`query_by_name` tool 100% complete** - First production-ready tool
 - ✅ **`query_by_pattern` tool 100% complete** - Second production-ready tool with advanced pattern matching
 - ✅ **`get_call_graph` tool 100% complete** - Third production-ready tool with call relationship analysis
+- ✅ **`list_functions` tool 100% complete** - Fourth production-ready tool with function enumeration and pagination
 - ✅ Binary compilation successful (`repocontext-mcp`)
 - ✅ Tool registration pattern established for remaining tools
 - ✅ Integration test framework operational, comprehensive testing in place
 - ✅ Code quality maintained with lint compliance
 
 ## Next Steps
-**Phase 1.3 Continuation**: Implement remaining core tools using established pattern:
-- `list_functions` - Repository function enumeration
+**Phase 1.3 Completion**: Implement final core tool using established pattern:
 - `list_types` - Repository type enumeration
 
-**Phase 1 Completion**: With 3 of 5 core tools complete (60% progress), focus on completing remaining tools
+**Phase 1 Completion**: With 4 of 5 core tools complete (80% progress), only one tool remaining to complete Phase 1
 
 ## Technical Insights & Patterns
 
@@ -126,7 +157,11 @@ Successfully implemented three production-ready MCP tools (`query_by_name`, `que
 - **Pattern Matching**: Full support for glob patterns, regex patterns, wildcards, character classes
 - **Entity Type Filtering**: Granular filtering capabilities with validation
 - **Call Graph Analysis**: Comprehensive function relationship analysis with depth control
+- **Function Enumeration**: Complete repository function listing with `SearchByType("function")`
+- **Pagination Support**: Configurable limit and offset for handling large result sets
+- **Signature Control**: Optional inclusion/exclusion of function signatures for response optimization
 - **Parameter Validation**: Robust validation patterns with helper methods
 - **Test Code Reuse**: Helper functions to eliminate duplication and improve maintainability
+- **Helper Method Patterns**: Reusable `applyPagination` and `removeSignatures` methods for result processing
 
-The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a robust and scalable foundation for completing the remaining Phase 1 tools.
+The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a robust and scalable foundation for completing the final Phase 1 tool.
