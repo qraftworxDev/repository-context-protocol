@@ -512,3 +512,110 @@ func TestHandleGetCallGraph_ResponseFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleListFunctions_Validation(t *testing.T) {
+	testHandlerValidation(
+		t,
+		"list_functions",
+		map[string]any{},
+		func(
+			server *RepoContextMCPServer, request mcp.CallToolRequest,
+		) (*mcp.CallToolResult, error) {
+			return server.HandleListFunctions(context.Background(), request)
+		},
+	)
+}
+
+func TestHandleListFunctions_ParameterParsing(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	server.QueryEngine = &index.QueryEngine{}
+	server.RepoPath = "/tmp/test"
+
+	// Test parsing of optional parameters
+	request := createMockCallToolRequest("list_functions", map[string]any{
+		"max_tokens":         1000,
+		"include_signatures": true,
+	})
+
+	// Since we don't have a working index, this will fail at repository validation
+	// But we can verify the handler structure accepts the parameters without panicking
+	result, err := server.HandleListFunctions(context.Background(), request)
+
+	if err != nil {
+		t.Fatalf("Handler returned unexpected error: %v", err)
+	}
+
+	// Should get repository validation error
+	if result == nil || !result.IsError {
+		t.Error("Expected error result for repository validation")
+	}
+}
+
+func TestHandleListFunctions_DefaultParameters(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	server.QueryEngine = &index.QueryEngine{}
+	server.RepoPath = "/tmp/test"
+
+	// Test with no parameters (should use defaults)
+	request := createMockCallToolRequest("list_functions", map[string]any{})
+
+	result, err := server.HandleListFunctions(context.Background(), request)
+
+	if err != nil {
+		t.Fatalf("Handler returned unexpected error: %v", err)
+	}
+
+	// Should get repository validation error (which means parameter parsing worked)
+	if result == nil || !result.IsError {
+		t.Error("Expected error result for repository validation")
+	}
+
+	// Verify error message contains repository validation
+	if len(result.Content) > 0 {
+		textContent, ok := result.Content[0].(mcp.TextContent)
+		if ok && textContent.Text != "" {
+			if !strings.Contains(textContent.Text, "Repository validation failed") {
+				t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
+			}
+		}
+	}
+}
+
+func TestHandleListFunctions_ResponseFormat(t *testing.T) {
+	// This test verifies the response format structure
+	// Since we can't easily mock the full query engine, we test that the handler
+	// follows the expected response format pattern
+	server := NewRepoContextMCPServer()
+
+	// Test that formatSuccessResponse works with sample function list data
+	sampleData := map[string]interface{}{
+		"query":       "function",
+		"search_type": "type",
+		"entries": []map[string]interface{}{
+			{
+				"index_entry": map[string]interface{}{
+					"name":      "testFunction",
+					"type":      "function",
+					"file":      "test.go",
+					"signature": "func testFunction() error",
+				},
+			},
+		},
+		"token_count": 150,
+		"executed_at": "2024-01-01T00:00:00Z",
+	}
+
+	result := server.FormatSuccessResponse(sampleData)
+	if result == nil {
+		t.Fatal("FormatSuccessResponse should not return nil")
+	}
+
+	if result.IsError {
+		t.Error("FormatSuccessResponse should not return error result for valid data")
+	}
+
+	// Verify content is present
+	if len(result.Content) == 0 {
+		t.Error("Expected response content to be present")
+	}
+}

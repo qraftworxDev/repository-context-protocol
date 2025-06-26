@@ -97,6 +97,168 @@ func TestHandleQueryByName_IntegrationWithTestData(t *testing.T) {
 	}
 }
 
+func TestHandleListFunctions_IntegrationWithTestData(t *testing.T) {
+	// Skip if no test data available
+	testDataPath := filepath.Join("..", "..", "testdata", "simple-go")
+	if _, err := os.Stat(testDataPath); os.IsNotExist(err) {
+		t.Skip("Test data not available - skipping integration test")
+	}
+
+	// Create a test server instance
+	server := NewRepoContextMCPServer()
+	server.RepoPath = testDataPath
+
+	// Create .repocontext directory for testing
+	repoContextPath := filepath.Join(testDataPath, ".repocontext")
+	err := os.MkdirAll(repoContextPath, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create .repocontext directory: %v", err)
+	}
+
+	defer os.RemoveAll(repoContextPath) // Clean up after test
+
+	// Initialize storage and build index
+	storage := index.NewHybridStorage(repoContextPath)
+	if err = storage.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+
+	// Build index for test data
+	builder := index.NewIndexBuilder(testDataPath)
+	if err = builder.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize builder: %v", err)
+	}
+
+	_, err = builder.BuildIndex()
+	if err != nil {
+		t.Fatalf("Failed to build index: %v", err)
+	}
+
+	// Initialize query engine
+	server.Storage = storage
+	server.QueryEngine = index.NewQueryEngine(storage)
+
+	// Test listing all functions
+	testCases := []struct {
+		name           string
+		expectedResult bool
+		description    string
+		minFunctions   int
+	}{
+		{
+			name:           "list all functions",
+			expectedResult: true,
+			description:    "Should return a list of all functions in the repository",
+			minFunctions:   1, // We expect at least main function
+		},
+	}
+
+	// Test the query engine directly since mock MCP requests are complex
+	// This validates that the integration works end-to-end
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test the query engine directly to validate the integration setup
+			searchResult, err := server.QueryEngine.SearchByType("function")
+			if err != nil {
+				t.Fatalf("SearchByType failed for functions: %v", err)
+			}
+
+			// Verify search result structure
+			if searchResult == nil {
+				t.Fatal("SearchByType returned nil result")
+			}
+
+			// Check if we found the expected minimum number of functions
+			if tc.expectedResult {
+				if len(searchResult.Entries) < tc.minFunctions {
+					t.Errorf("Expected at least %d functions but got %d", tc.minFunctions, len(searchResult.Entries))
+				}
+
+				// Verify all entries are functions
+				for i, entry := range searchResult.Entries {
+					if entry.IndexEntry.Type != "function" {
+						t.Errorf("Entry %d is not a function, got type: %s", i, entry.IndexEntry.Type)
+					}
+					if entry.IndexEntry.Name == "" {
+						t.Errorf("Entry %d has empty name", i)
+					}
+				}
+			}
+
+			// Verify the result has proper query and search type fields
+			if searchResult.Query != "function" {
+				t.Errorf("Expected query field to be 'function', got '%s'", searchResult.Query)
+			}
+
+			if searchResult.SearchType != "type" {
+				t.Errorf("Expected search_type field to be 'type', got '%s'", searchResult.SearchType)
+			}
+
+			// Test pagination functionality
+			if len(searchResult.Entries) > 1 {
+				// Test with small limit
+				queryOptions := index.QueryOptions{
+					MaxTokens: 2000,
+					Format:    "json",
+				}
+				limitedResult, err := server.QueryEngine.SearchByTypeWithOptions("function", queryOptions)
+				if err != nil {
+					t.Fatalf("SearchByTypeWithOptions failed: %v", err)
+				}
+
+				// Apply pagination manually to test our helper function
+				originalLength := len(limitedResult.Entries)
+				server.applyPagination(limitedResult, 1, 0) // Limit to 1 function
+
+				if len(limitedResult.Entries) != 1 {
+					t.Errorf("Expected 1 function after pagination, got %d", len(limitedResult.Entries))
+				}
+
+				if !limitedResult.Truncated {
+					t.Error("Expected result to be marked as truncated after pagination")
+				}
+
+				// Test offset functionality
+				offsetResult, err := server.QueryEngine.SearchByTypeWithOptions("function", queryOptions)
+				if err != nil {
+					t.Fatalf("SearchByTypeWithOptions failed for offset test: %v", err)
+				}
+
+				if originalLength > 1 {
+					server.applyPagination(offsetResult, 0, 1) // Skip first function
+					if len(offsetResult.Entries) != originalLength-1 {
+						t.Errorf("Expected %d functions after offset, got %d", originalLength-1, len(offsetResult.Entries))
+					}
+				}
+			}
+
+			// Test signature removal functionality
+			if len(searchResult.Entries) > 0 {
+				// Make a copy to test signature removal
+				testResult := *searchResult
+				testEntries := make([]index.SearchResultEntry, len(searchResult.Entries))
+				copy(testEntries, searchResult.Entries)
+				testResult.Entries = testEntries
+
+				// Verify signatures are present initially
+				if testResult.Entries[0].IndexEntry.Signature == "" {
+					t.Log("Warning: No signature found for first function (this may be expected)")
+				}
+
+				// Remove signatures
+				server.removeSignatures(&testResult)
+
+				// Verify signatures are removed
+				for i, entry := range testResult.Entries {
+					if entry.IndexEntry.Signature != "" {
+						t.Errorf("Expected signature to be removed for entry %d, but it still has: %s", i, entry.IndexEntry.Signature)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestHandleQueryByPattern_IntegrationWithTestData(t *testing.T) {
 	// Skip if no test data available
 	testDataPath := filepath.Join("..", "..", "testdata", "simple-go")

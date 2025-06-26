@@ -149,7 +149,16 @@ func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
 		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
 	)
 
-	return []mcp.Tool{queryByNameTool, queryByPatternTool, getCallGraphTool}
+	// List functions tool
+	listFunctionsTool := mcp.NewTool("list_functions",
+		mcp.WithDescription("List all functions in the repository with optional filtering and pagination"),
+		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response (default: 2000)")),
+		mcp.WithBoolean("include_signatures", mcp.Description("Include function signatures in the response (default: true)")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of functions to return (0 for no limit)")),
+		mcp.WithNumber("offset", mcp.Description("Number of functions to skip (for pagination)")),
+	)
+
+	return []mcp.Tool{queryByNameTool, queryByPatternTool, getCallGraphTool, listFunctionsTool}
 }
 
 // RegisterRepoTools registers the repository management MCP tools
@@ -334,6 +343,77 @@ func (s *RepoContextMCPServer) HandleGetCallGraph(_ context.Context, request mcp
 
 	// Return the formatted result
 	return s.FormatSuccessResponse(callGraphResult), nil
+}
+
+// HandleListFunctions handles the list_functions MCP tool
+func (s *RepoContextMCPServer) HandleListFunctions(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Check for system-level failures that prevent operation
+	if s.QueryEngine == nil {
+		return nil, fmt.Errorf("query engine not initialized - system configuration error")
+	}
+
+	// Validate repository first
+	if err := s.validateRepository(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
+	}
+
+	// Parse parameters using the MCP library helper functions
+	maxTokens := request.GetInt("max_tokens", constMaxTokens)
+	includeSignatures := request.GetBool("include_signatures", true)
+	limit := request.GetInt("limit", 0)   // 0 means no limit
+	offset := request.GetInt("offset", 0) // 0 means no offset
+
+	// Build query options
+	queryOptions := index.QueryOptions{
+		MaxTokens: maxTokens,
+		Format:    "json",
+	}
+
+	// Search for all functions using the query engine
+	searchResult, err := s.QueryEngine.SearchByTypeWithOptions("function", queryOptions)
+	if err != nil {
+		return s.FormatErrorResponse("list_functions", err), nil
+	}
+
+	// Apply pagination if requested
+	if limit > 0 || offset > 0 {
+		s.applyPagination(searchResult, limit, offset)
+	}
+
+	// Filter out signatures if not requested
+	if !includeSignatures {
+		s.removeSignatures(searchResult)
+	}
+
+	// Return the formatted result
+	return s.FormatSuccessResponse(searchResult), nil
+}
+
+// applyPagination applies limit and offset to search results
+func (s *RepoContextMCPServer) applyPagination(result *index.SearchResult, limit, offset int) {
+	totalEntries := len(result.Entries)
+
+	// Apply offset
+	if offset > 0 {
+		if offset >= totalEntries {
+			result.Entries = []index.SearchResultEntry{}
+			return
+		}
+		result.Entries = result.Entries[offset:]
+	}
+
+	// Apply limit
+	if limit > 0 && limit < len(result.Entries) {
+		result.Entries = result.Entries[:limit]
+		result.Truncated = true
+	}
+}
+
+// removeSignatures removes signature information from search results when not requested
+func (s *RepoContextMCPServer) removeSignatures(result *index.SearchResult) {
+	for i := range result.Entries {
+		result.Entries[i].IndexEntry.Signature = ""
+	}
 }
 
 // FormatSuccessResponse formats a successful response for MCP
