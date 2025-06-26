@@ -158,7 +158,16 @@ func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
 		mcp.WithNumber("offset", mcp.Description("Number of functions to skip (for pagination)")),
 	)
 
-	return []mcp.Tool{queryByNameTool, queryByPatternTool, getCallGraphTool, listFunctionsTool}
+	// List types tool
+	listTypesTool := mcp.NewTool("list_types",
+		mcp.WithDescription("List all types in the repository with optional filtering and pagination"),
+		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response (default: 2000)")),
+		mcp.WithBoolean("include_signatures", mcp.Description("Include type signatures in the response (default: true)")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of types to return (0 for no limit)")),
+		mcp.WithNumber("offset", mcp.Description("Number of types to skip (for pagination)")),
+	)
+
+	return []mcp.Tool{queryByNameTool, queryByPatternTool, getCallGraphTool, listFunctionsTool, listTypesTool}
 }
 
 // RegisterRepoTools registers the repository management MCP tools
@@ -345,8 +354,11 @@ func (s *RepoContextMCPServer) HandleGetCallGraph(_ context.Context, request mcp
 	return s.FormatSuccessResponse(callGraphResult), nil
 }
 
-// HandleListFunctions handles the list_functions MCP tool
-func (s *RepoContextMCPServer) HandleListFunctions(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleListEntities is a common helper for listing entities by type (functions, types, etc.)
+func (s *RepoContextMCPServer) handleListEntities(
+	request mcp.CallToolRequest,
+	entityType, toolName string,
+) (*mcp.CallToolResult, error) {
 	// Check for system-level failures that prevent operation
 	if s.QueryEngine == nil {
 		return nil, fmt.Errorf("query engine not initialized - system configuration error")
@@ -369,10 +381,10 @@ func (s *RepoContextMCPServer) HandleListFunctions(_ context.Context, request mc
 		Format:    "json",
 	}
 
-	// Search for all functions using the query engine
-	searchResult, err := s.QueryEngine.SearchByTypeWithOptions("function", queryOptions)
+	// Search for all entities of the specified type using the query engine
+	searchResult, err := s.QueryEngine.SearchByTypeWithOptions(entityType, queryOptions)
 	if err != nil {
-		return s.FormatErrorResponse("list_functions", err), nil
+		return s.FormatErrorResponse(toolName, err), nil
 	}
 
 	// Apply pagination if requested
@@ -387,6 +399,16 @@ func (s *RepoContextMCPServer) HandleListFunctions(_ context.Context, request mc
 
 	// Return the formatted result
 	return s.FormatSuccessResponse(searchResult), nil
+}
+
+// HandleListFunctions handles the list_functions MCP tool
+func (s *RepoContextMCPServer) HandleListFunctions(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleListEntities(request, "function", "list_functions")
+}
+
+// HandleListTypes handles the list_types MCP tool
+func (s *RepoContextMCPServer) HandleListTypes(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleListEntities(request, "type", "list_types")
 }
 
 // applyPagination applies limit and offset to search results

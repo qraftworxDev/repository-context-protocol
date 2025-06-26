@@ -551,15 +551,20 @@ func TestHandleListFunctions_ParameterParsing(t *testing.T) {
 	}
 }
 
-func TestHandleListFunctions_DefaultParameters(t *testing.T) {
+// testHandlerDefaultParameters is a helper function to test default parameter handling for list tools
+func testHandlerDefaultParameters(
+	t *testing.T,
+	toolName string,
+	handlerFunc func(*RepoContextMCPServer, context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error),
+) {
 	server := NewRepoContextMCPServer()
 	server.QueryEngine = &index.QueryEngine{}
 	server.RepoPath = "/tmp/test"
 
 	// Test with no parameters (should use defaults)
-	request := createMockCallToolRequest("list_functions", map[string]any{})
+	request := createMockCallToolRequest(toolName, map[string]any{})
 
-	result, err := server.HandleListFunctions(context.Background(), request)
+	result, err := handlerFunc(server, context.Background(), request)
 
 	if err != nil {
 		t.Fatalf("Handler returned unexpected error: %v", err)
@@ -579,6 +584,16 @@ func TestHandleListFunctions_DefaultParameters(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestHandleListFunctions_DefaultParameters(t *testing.T) {
+	testHandlerDefaultParameters(
+		t,
+		"list_functions",
+		func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return server.HandleListFunctions(ctx, request)
+		},
+	)
 }
 
 func TestHandleListFunctions_ResponseFormat(t *testing.T) {
@@ -602,6 +617,103 @@ func TestHandleListFunctions_ResponseFormat(t *testing.T) {
 			},
 		},
 		"token_count": 150,
+		"executed_at": "2024-01-01T00:00:00Z",
+	}
+
+	result := server.FormatSuccessResponse(sampleData)
+	if result == nil {
+		t.Fatal("FormatSuccessResponse should not return nil")
+	}
+
+	if result.IsError {
+		t.Error("FormatSuccessResponse should not return error result for valid data")
+	}
+
+	// Verify content is present
+	if len(result.Content) == 0 {
+		t.Error("Expected response content to be present")
+	}
+}
+
+func TestHandleListTypes_Validation(t *testing.T) {
+	testHandlerValidation(
+		t,
+		"list_types",
+		map[string]any{},
+		func(
+			server *RepoContextMCPServer, request mcp.CallToolRequest,
+		) (*mcp.CallToolResult, error) {
+			return server.HandleListTypes(context.Background(), request)
+		},
+	)
+}
+
+func TestHandleListTypes_ParameterParsing(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	server.QueryEngine = &index.QueryEngine{}
+	server.RepoPath = "/tmp/test"
+
+	// Test parsing of optional parameters
+	request := createMockCallToolRequest("list_types", map[string]any{
+		"max_tokens":         1000,
+		"include_signatures": true,
+		"limit":              10,
+		"offset":             5,
+	})
+
+	// Since we don't have a working index, this will fail at repository validation
+	// But we can verify the handler structure accepts the parameters without panicking
+	result, err := server.HandleListTypes(context.Background(), request)
+
+	if err != nil {
+		t.Fatalf("Handler returned unexpected error: %v", err)
+	}
+
+	// Should get repository validation error
+	if result == nil || !result.IsError {
+		t.Error("Expected error result for repository validation")
+	}
+}
+
+func TestHandleListTypes_DefaultParameters(t *testing.T) {
+	testHandlerDefaultParameters(
+		t,
+		"list_types",
+		func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return server.HandleListTypes(ctx, request)
+		},
+	)
+}
+
+func TestHandleListTypes_ResponseFormat(t *testing.T) {
+	// This test verifies the response format structure
+	// Since we can't easily mock the full query engine, we test that the handler
+	// follows the expected response format pattern
+	server := NewRepoContextMCPServer()
+
+	// Test that formatSuccessResponse works with sample type list data
+	sampleData := map[string]interface{}{
+		"query":       "type",
+		"search_type": "type",
+		"entries": []map[string]interface{}{
+			{
+				"index_entry": map[string]interface{}{
+					"name":      "User",
+					"type":      "type",
+					"file":      "models.go",
+					"signature": "type User struct",
+				},
+			},
+			{
+				"index_entry": map[string]interface{}{
+					"name":      "ErrorCode",
+					"type":      "type",
+					"file":      "errors.go",
+					"signature": "type ErrorCode int",
+				},
+			},
+		},
+		"token_count": 200,
 		"executed_at": "2024-01-01T00:00:00Z",
 	}
 
