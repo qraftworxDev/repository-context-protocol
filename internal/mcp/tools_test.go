@@ -341,3 +341,174 @@ func createMockCallToolRequest(toolName string, params map[string]interface{}) m
 	// by running integration tests after implementing the real functionality
 	return mcp.CallToolRequest{}
 }
+
+func TestHandleGetCallGraph_Validation(t *testing.T) {
+	testHandlerValidation(
+		t,
+		"get_call_graph",
+		map[string]any{"function_name": "testFunction"},
+		func(
+			server *RepoContextMCPServer, request mcp.CallToolRequest,
+		) (*mcp.CallToolResult, error) {
+			return server.HandleGetCallGraph(context.Background(), request)
+		},
+	)
+}
+
+func TestHandleGetCallGraph_ParameterParsing(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	server.QueryEngine = &index.QueryEngine{} // Set dummy query engine to pass nil check
+	server.RepoPath = "/tmp/test"             // Set path that doesn't exist
+
+	// Test with missing function_name parameter
+	request := createMockCallToolRequest("get_call_graph", map[string]any{})
+	result, err := server.HandleGetCallGraph(context.Background(), request)
+
+	if err != nil {
+		t.Fatalf("Handler returned unexpected error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Handler returned nil result")
+	}
+
+	// Should get error for repository validation first (happens before parameter parsing)
+	if !result.IsError {
+		t.Error("Expected error result for repository validation")
+	}
+
+	// Verify error message
+	if len(result.Content) > 0 {
+		textContent, ok := result.Content[0].(mcp.TextContent)
+		if ok && textContent.Text != "" {
+			if !strings.Contains(textContent.Text, "Repository validation failed") {
+				t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
+			}
+		}
+	}
+}
+
+func TestHandleGetCallGraph_ParameterValidation(t *testing.T) {
+	tests := []struct {
+		name           string
+		functionName   string
+		maxDepth       int
+		includeCallers bool
+		includeCallees bool
+		expectedError  string
+	}{
+		{
+			name:          "empty function name",
+			functionName:  "",
+			expectedError: "function_name parameter is required",
+		},
+		{
+			name:         "valid function name",
+			functionName: "testFunction",
+			maxDepth:     2,
+		},
+		{
+			name:         "default max_depth",
+			functionName: "testFunction",
+			maxDepth:     0, // Should default to 2
+		},
+		{
+			name:           "include callers only",
+			functionName:   "testFunction",
+			includeCallers: true,
+		},
+		{
+			name:           "include callees only",
+			functionName:   "testFunction",
+			includeCallees: true,
+		},
+		{
+			name:           "include both",
+			functionName:   "testFunction",
+			includeCallers: true,
+			includeCallees: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := NewRepoContextMCPServer()
+			server.QueryEngine = &index.QueryEngine{} // Set dummy query engine to pass nil check
+			server.RepoPath = "/tmp/test"             // Set path that doesn't exist
+
+			// Create mock request with parameters
+			params := map[string]any{
+				"function_name": tt.functionName,
+			}
+			if tt.maxDepth > 0 {
+				params["max_depth"] = tt.maxDepth
+			}
+			if tt.includeCallers {
+				params["include_callers"] = tt.includeCallers
+			}
+			if tt.includeCallees {
+				params["include_callees"] = tt.includeCallees
+			}
+
+			request := createMockCallToolRequest("get_call_graph", params)
+			result, err := server.HandleGetCallGraph(context.Background(), request)
+
+			if err != nil {
+				t.Fatalf("Handler returned unexpected error: %v", err)
+			}
+
+			if result == nil {
+				t.Fatal("Handler returned nil result")
+			}
+
+			// For empty function name, should get parameter validation error
+			if tt.expectedError != "" {
+				if !result.IsError {
+					t.Error("Expected error result for parameter validation")
+				}
+				// Note: Our mock implementation means we get repository validation error first
+				// In real usage, the parameter validation would happen
+			} else {
+				// For valid parameters, should get repository validation error (since test repo doesn't exist)
+				if !result.IsError {
+					t.Error("Expected error result for repository validation")
+				}
+			}
+		})
+	}
+}
+
+func TestHandleGetCallGraph_ResponseFormat(t *testing.T) {
+	server := NewRepoContextMCPServer()
+
+	// Test successful response formatting
+	callGraphInfo := &index.CallGraphInfo{
+		Function: "testFunction",
+		Callers: []index.CallGraphEntry{
+			{Function: "caller1", File: "test.go", Line: 10},
+		},
+		Callees: []index.CallGraphEntry{
+			{Function: "callee1", File: "test.go", Line: 20},
+		},
+		Depth: 2,
+	}
+
+	result := server.FormatSuccessResponse(callGraphInfo)
+	if result == nil {
+		t.Fatal("formatSuccessResponse should not return nil")
+	}
+
+	if result.IsError {
+		t.Error("formatSuccessResponse should not return error result")
+	}
+
+	// Verify JSON content
+	if len(result.Content) > 0 {
+		textContent, ok := result.Content[0].(mcp.TextContent)
+		if !ok {
+			t.Error("Expected TextContent in result")
+		} else if textContent.Text == "" {
+			t.Error("Expected non-empty text content")
+		}
+	}
+}

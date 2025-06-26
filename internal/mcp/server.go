@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	varMaxTokens = 2000
+	constMaxTokens = 2000
+	constMaxDepth  = 2
 )
 
 // RepoContextMCPServer provides MCP server functionality for repository context protocol
@@ -138,7 +139,17 @@ func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
 		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
 	)
 
-	return []mcp.Tool{queryByNameTool, queryByPatternTool}
+	// Get call graph tool
+	getCallGraphTool := mcp.NewTool("get_call_graph",
+		mcp.WithDescription("Get detailed call graph for a function"),
+		mcp.WithString("function_name", mcp.Required(), mcp.Description("Function name to analyze")),
+		mcp.WithNumber("max_depth", mcp.Description("Maximum traversal depth (default: 2)")),
+		mcp.WithBoolean("include_callers", mcp.Description("Include functions that call this function")),
+		mcp.WithBoolean("include_callees", mcp.Description("Include functions called by this function")),
+		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
+	)
+
+	return []mcp.Tool{queryByNameTool, queryByPatternTool, getCallGraphTool}
 }
 
 // RegisterRepoTools registers the repository management MCP tools
@@ -167,7 +178,7 @@ func (s *RepoContextMCPServer) HandleQueryByName(_ context.Context, request mcp.
 	includeCallers := request.GetBool("include_callers", false)
 	includeCallees := request.GetBool("include_callees", false)
 	includeTypes := request.GetBool("include_types", false)
-	maxTokens := request.GetInt("max_tokens", varMaxTokens)
+	maxTokens := request.GetInt("max_tokens", constMaxTokens)
 
 	// Build query options
 	queryOptions := index.QueryOptions{
@@ -253,7 +264,7 @@ func (s *RepoContextMCPServer) HandleQueryByPattern(
 	includeCallers := request.GetBool("include_callers", false)
 	includeCallees := request.GetBool("include_callees", false)
 	includeTypes := request.GetBool("include_types", false)
-	maxTokens := request.GetInt("max_tokens", varMaxTokens)
+	maxTokens := request.GetInt("max_tokens", constMaxTokens)
 
 	// Validate entity type if provided
 	if err := s.validateEntityType(entityType); err != nil {
@@ -277,6 +288,52 @@ func (s *RepoContextMCPServer) HandleQueryByPattern(
 
 	// Return the formatted result
 	return s.FormatSuccessResponse(searchResult), nil
+}
+
+// HandleGetCallGraph handles the get_call_graph MCP tool
+func (s *RepoContextMCPServer) HandleGetCallGraph(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Check for system-level failures that prevent operation
+	if s.QueryEngine == nil {
+		return nil, fmt.Errorf("query engine not initialized - system configuration error")
+	}
+
+	// Validate repository first
+	if err := s.validateRepository(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
+	}
+
+	// Parse parameters using the MCP library helper functions
+	functionName := request.GetString("function_name", "")
+	if functionName == "" {
+		return mcp.NewToolResultError("function_name parameter is required"), nil
+	}
+
+	maxDepth := request.GetInt("max_depth", constMaxDepth)
+	if maxDepth <= 0 {
+		maxDepth = constMaxDepth
+	}
+
+	includeCallers := request.GetBool("include_callers", true) // Default to true
+	includeCallees := request.GetBool("include_callees", true) // Default to true
+	maxTokens := request.GetInt("max_tokens", constMaxTokens)
+
+	// Build query options
+	queryOptions := index.QueryOptions{
+		IncludeCallers: includeCallers,
+		IncludeCallees: includeCallees,
+		MaxDepth:       maxDepth,
+		MaxTokens:      maxTokens,
+		Format:         "json",
+	}
+
+	// Execute the call graph query using the query engine
+	callGraphResult, err := s.QueryEngine.GetCallGraphWithOptions(functionName, queryOptions)
+	if err != nil {
+		return s.FormatErrorResponse("get_call_graph", err), nil
+	}
+
+	// Return the formatted result
+	return s.FormatSuccessResponse(callGraphResult), nil
 }
 
 // FormatSuccessResponse formats a successful response for MCP
