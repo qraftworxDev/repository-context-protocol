@@ -1,11 +1,34 @@
 # Active Context
 
 ## Current Work Focus
-**MCP Server Development: Phase 2.1 Complete - Advanced Query Tools Implementation**
+**MCP Server Development: Phase 2.1 Complete - Advanced Query Tools Implementation + Architecture Refactoring**
 
-Successfully completed Phase 2.1 with enhanced query tools architecture, advanced parameter handling, query options integration, and response optimization. Built upon Phase 1's foundation with improved organization and enhanced functionality.
+Successfully completed Phase 2.1 with enhanced query tools architecture, advanced parameter handling, query options integration, and response optimization. Subsequently completed major architecture refactoring that eliminated testing overlap, consolidated duplicate handler systems, and achieved a clean single-handler architecture with all functionality preserved.
 
 ## Recent Changes
+
+### Phase 2.1: Architecture Refactoring & Consolidation Complete ✅ - **REFACTORING COMPLETE**
+
+#### Architecture Consolidation
+Successfully eliminated duplicate handler systems and consolidated architecture:
+1. **Handler System Unification**: Removed duplicate handlers from `server.go`
+   - Eliminated legacy handlers: `HandleQueryByName`, `HandleQueryByPattern`, `HandleGetCallGraph`, `handleListEntities`, `HandleListFunctions`, `HandleListTypes`
+   - Consolidated to single advanced handler architecture in `tools.go`
+   - Moved helper methods (`validateEntityType`, `executePatternSearchWithFilter`, `applyPagination`, `removeSignatures`) to `tools.go`
+2. **Testing Consolidation**: Eliminated testing overlap and quality degradation
+   - Removed ~800 lines of duplicate test code between `tools_test.go` and `tools_query_test.go`
+   - Clear separation of concerns: `tools_test.go` focuses on core validation flow, `tools_query_test.go` on advanced features
+   - Maintained comprehensive test coverage with improved organization
+3. **Implementation Cleanup**: Resolved architectural issues
+   - Fixed nil pointer dereference in `tools_query_test.go` by adding proper return statements
+   - Simplified `parseListEntitiesParameters` method by removing unused error return type
+   - All 15 test suites passing with zero linting issues
+
+#### Benefits Achieved
+- **Code Quality**: Single handler architecture eliminates confusion between legacy and advanced handlers
+- **Maintainability**: Consolidated test structure reduces maintenance burden
+- **Performance**: Eliminated duplicate code paths and unnecessary complexity
+- **Reliability**: All functionality preserved while achieving cleaner architecture
 
 ### Phase 2.1: Advanced Query Tools Implementation Complete ✅ - **PHASE 2.1 COMPLETE**
 
@@ -187,21 +210,25 @@ Successfully completed Phase 2.1 with enhanced query tools architecture, advance
 ## Current Status
 - ✅ **MCP Phase 1 - COMPLETE** - All foundation tools implemented and tested
 - ✅ **MCP Phase 2.1 - COMPLETE** - Advanced Query Tools Implementation with enhanced architecture
-- ✅ **Advanced Tool Organization** - `internal/mcp/tools.go` with structured parameter handling
+- ✅ **Architecture Refactoring - COMPLETE** - Consolidated duplicate handler systems into single advanced architecture
+- ✅ **Testing Consolidation - COMPLETE** - Eliminated ~800 lines of duplicate test code with improved organization
+- ✅ **Advanced Tool Organization** - `internal/mcp/tools.go` with structured parameter handling and consolidated helpers
 - ✅ **Query Options Integration** - Builder pattern with `QueryOptionsBuilder` interface
 - ✅ **Enhanced Parameter Handling** - Structured types with validation (`QueryByNameParams`, etc.)
 - ✅ **Response Optimization** - Improved error handling and response formatting
-- ✅ **Integration Tests Passing** - 26/30 tests passing (all real functionality working)
-- ✅ **Lint Compliance** - Clean code with no linting issues
+- ✅ **All Tests Passing** - 15/15 test suites passing (comprehensive functionality coverage)
+- ✅ **Lint Compliance** - Clean code with zero linting issues after refactoring
+- ✅ **Implementation Fixes** - Resolved nil pointer dereference and unused error return issues
 - ✅ **TDD Implementation** - Test-driven development approach successfully applied
 
 ## Next Steps
-**Phase 2.2 Planning**: Repository Management Tools Development
+**Phase 2.2 Ready for Implementation**: Repository Management Tools Development
+- Clean architecture foundation established through successful refactoring
 - Repository management tools (`initialize_repository`, `build_index`, `get_repository_status`)
 - Enhanced repository operations and lifecycle management
 - Advanced index building and status reporting
 
-**Phase 2.1 Achievement**: Advanced Query Tools complete (100% progress) - Enhanced architecture successfully implemented
+**Phase 2.1 Achievement**: Advanced Query Tools complete (100% progress) + Architecture refactoring complete - Single handler architecture with consolidated testing successfully implemented
 
 ## Technical Insights & Patterns
 
@@ -232,4 +259,12 @@ Successfully completed Phase 2.1 with enhanced query tools architecture, advance
 - **Enhanced Error Handling**: System-level validation separation with improved error messages
 - **Response Optimization**: Consistent formatting and optimization across all tools
 
-The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, providing a complete and robust foundation with Phase 1 core tools and Phase 2.1 advanced architecture successfully implemented.
+### Architecture Refactoring Insights
+- **Handler System Consolidation**: Successfully eliminated duplicate handler patterns by maintaining only advanced handlers
+- **Code Organization**: Moving helper methods to appropriate modules (`tools.go`) improves maintainability and cohesion
+- **Testing Strategy**: Separating test concerns (`tools_test.go` for core validation, `tools_query_test.go` for advanced features) reduces overlap
+- **Error Handling Simplification**: Removing unused error returns (`parseListEntitiesParameters`) improves code clarity
+- **Test Coverage Optimization**: Eliminating duplicate tests while maintaining comprehensive coverage (15/15 passing)
+- **Architecture Decision**: Single handler system with enhanced parameter handling provides better maintainability than parallel systems
+
+The implementation demonstrates solid integration between MCP protocol and existing query engine infrastructure, with successful architecture refactoring that eliminated redundancy while preserving all functionality. The clean single-handler architecture provides a robust foundation for Phase 2.2 development.
