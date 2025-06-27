@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	constMaxTokens = 2000
+	constMaxTokens = 2000 // TODO: this should not be static - user defined from config
 	constMaxDepth  = 2
 )
 
@@ -44,7 +44,7 @@ func (s *RepoContextMCPServer) Run(ctx context.Context) error {
 	}
 
 	// TODO: Complete MCP server implementation with proper tool registration
-	// For now, return success to indicate server can initialize properly
+	// returning an error for now indicating WIP
 	return fmt.Errorf("MCP server implementation in progress - basic initialization complete")
 }
 
@@ -57,6 +57,7 @@ func (s *RepoContextMCPServer) detectRepositoryRoot() (string, error) {
 	}
 
 	// Walk up the directory tree looking for .git
+	// TODO: this should be improved - what if it's an un-initialized repository?
 	dir := currentDir
 	for {
 		gitPath := filepath.Join(dir, ".git")
@@ -113,9 +114,8 @@ func (s *RepoContextMCPServer) validateRepository() error {
 	return nil
 }
 
-// RegisterQueryTools registers the query-related MCP tools (Phase 2.1 Enhanced)
+// RegisterQueryTools registers the query-related MCP tools
 func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
-	// Phase 2.1: Use enhanced tools from tools.go with advanced features
 	return s.RegisterAdvancedQueryTools()
 }
 
@@ -123,12 +123,6 @@ func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
 func (s *RepoContextMCPServer) RegisterRepoTools() {
 	// Implementation will be added as we develop the tools
 }
-
-// These handler methods are now implemented in tools.go as HandleAdvancedQueryByName and HandleAdvancedQueryByPattern
-// The server.go file now focuses on core server functionality and shared helper methods
-
-// All query handler methods are now implemented in tools.go as enhanced handlers
-// The server.go file now focuses on core server functionality, initialization, and response formatting
 
 // FormatSuccessResponse formats a successful response for MCP
 func (s *RepoContextMCPServer) FormatSuccessResponse(data interface{}) *mcp.CallToolResult {

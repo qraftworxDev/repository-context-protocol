@@ -16,13 +16,9 @@ import (
 
 const (
 	constDuration50ms      = 50
-	constFilePermission600 = 0600
+	ConstFilePermission600 = 0600
 	constFilePermission755 = 0755
 )
-
-// Advanced Query Tools - Phase 2.1 Implementation
-// This file organizes and enhances the query tools with better structure,
-// advanced parameter handling, query options integration, and response optimization.
 
 // RegisterAdvancedQueryTools registers enhanced query tools with advanced features
 func (s *RepoContextMCPServer) RegisterAdvancedQueryTools() []mcp.Tool {
@@ -52,7 +48,8 @@ func (s *RepoContextMCPServer) createQueryByPatternTool() mcp.Tool {
 	return mcp.NewTool("query_by_pattern",
 		mcp.WithDescription(
 			"Search for entities using glob or regex patterns with advanced filtering "+
-				"(supports wildcards *, ?, character classes [abc], brace expansion {a,b}, and regex /pattern/)",
+				"(supports wildcards *, ?, character classes [abc], brace expansion {a,b}, and regex /pattern/). "+
+				"This tool is useful for searching for entities in the repository.",
 		),
 		mcp.WithString("pattern", mcp.Required(), mcp.Description("Search pattern (supports glob and regex patterns)")),
 		mcp.WithString("entity_type", mcp.Description("Filter by entity type: function, type, variable, constant")),
@@ -646,7 +643,7 @@ func (s *RepoContextMCPServer) createInitialManifest(manifestPath string) error 
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
-	if err := os.WriteFile(manifestPath, manifestJSON, constFilePermission600); err != nil {
+	if err := os.WriteFile(manifestPath, manifestJSON, ConstFilePermission600); err != nil {
 		return fmt.Errorf("failed to write manifest file: %w", err)
 	}
 

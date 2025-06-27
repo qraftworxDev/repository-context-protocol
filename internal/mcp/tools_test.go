@@ -26,9 +26,87 @@ func TestRepoContextMCPServer_RegisterQueryTools(t *testing.T) {
 
 	tools := server.RegisterQueryTools()
 
-	// Verify we get tools back
-	if len(tools) == 0 {
-		t.Error("RegisterQueryTools should return tools")
+	// Expected tools in the correct order
+	expectedTools := []struct {
+		name        string
+		description string
+	}{
+		{
+			name:        "query_by_name",
+			description: "Search for functions, types, or variables by exact name with advanced options",
+		},
+		{
+			name: "query_by_pattern",
+			description: "Search for entities using glob or regex patterns with advanced filtering " +
+				"(supports wildcards *, ?, character classes [abc], brace expansion {a,b}, and regex /pattern/). " +
+				"This tool is useful for searching for entities in the repository.",
+		},
+		{
+			name:        "get_call_graph",
+			description: "Get detailed call graph for a function with configurable depth and selective inclusion",
+		},
+		{
+			name:        "list_functions",
+			description: "List all functions in the repository with pagination and signature control",
+		},
+		{
+			name:        "list_types",
+			description: "List all types in the repository with pagination and signature control",
+		},
+	}
+
+	// Verify exact number of tools returned
+	if len(tools) != len(expectedTools) {
+		t.Errorf("Expected %d tools, got %d", len(expectedTools), len(tools))
+	}
+
+	// Create map for efficient lookup
+	toolsByName := make(map[string]mcp.Tool)
+	for _, tool := range tools {
+		toolsByName[tool.Name] = tool
+	}
+
+	// Verify each expected tool is present with correct properties
+	for _, expected := range expectedTools {
+		tool, exists := toolsByName[expected.name]
+		if !exists {
+			t.Errorf("Expected tool '%s' not found in registered tools", expected.name)
+			continue
+		}
+
+		// Validate tool name
+		if tool.Name != expected.name {
+			t.Errorf("Tool name mismatch: expected '%s', got '%s'", expected.name, tool.Name)
+		}
+
+		// Validate tool description
+		if tool.Description != expected.description {
+			t.Errorf("Tool '%s' description mismatch:\nExpected: %s\nGot: %s", expected.name, expected.description, tool.Description)
+		}
+
+		// Validate that tool has a non-empty description
+		if tool.Description == "" {
+			t.Errorf("Tool '%s' should have a description", tool.Name)
+		}
+
+		// Validate that tool has input schema (all tools should have parameters)
+		if tool.InputSchema.Type == "" {
+			t.Errorf("Tool '%s' should have input schema with type defined", tool.Name)
+		}
+	}
+
+	// Verify no unexpected tools are present
+	for _, tool := range tools {
+		found := false
+		for _, expected := range expectedTools {
+			if tool.Name == expected.name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Unexpected tool '%s' found in registered tools", tool.Name)
+		}
 	}
 }
 
@@ -448,7 +526,7 @@ func helper() string {
 	return "helper"
 }
 `
-		err = os.WriteFile(goFile, []byte(goContent), constFilePermission600)
+		err = os.WriteFile(goFile, []byte(goContent), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file: %v", err)
 		}
@@ -523,7 +601,7 @@ func NewService(name string) *Service {
 	return &Service{name: name}
 }
 `
-		err = os.WriteFile(goFile, []byte(goContent), constFilePermission600)
+		err = os.WriteFile(goFile, []byte(goContent), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file: %v", err)
 		}
@@ -661,7 +739,7 @@ type Type1 struct {
 	Field1 string
 }
 `
-		err = os.WriteFile(goFile1, []byte(goContent1), constFilePermission600)
+		err = os.WriteFile(goFile1, []byte(goContent1), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file 1: %v", err)
 		}
@@ -676,7 +754,7 @@ func function2() {
 const Constant1 = "value"
 var Variable1 string
 `
-		err = os.WriteFile(goFile2, []byte(goContent2), constFilePermission600)
+		err = os.WriteFile(goFile2, []byte(goContent2), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file 2: %v", err)
 		}
@@ -745,7 +823,7 @@ type Service struct {
 const AppName = "test"
 var GlobalVar = "global"
 `
-		err = os.WriteFile(goFile, []byte(goContent), constFilePermission600)
+		err = os.WriteFile(goFile, []byte(goContent), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file: %v", err)
 		}
@@ -954,7 +1032,7 @@ type User struct {
 const MaxUsers = 1000
 var DefaultUser = User{ID: 1, Name: "Default"}
 `
-		err = os.WriteFile(goFile1, []byte(goContent1), constFilePermission600)
+		err = os.WriteFile(goFile1, []byte(goContent1), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file 1: %v", err)
 		}
@@ -978,7 +1056,7 @@ type Config struct {
 const Version = "1.0.0"
 var Config GlobalConfig = Config{Port: 8080, Host: "localhost"}
 `
-		err = os.WriteFile(goFile2, []byte(goContent2), constFilePermission600)
+		err = os.WriteFile(goFile2, []byte(goContent2), ConstFilePermission600)
 		if err != nil {
 			t.Fatalf("Failed to create test Go file 2: %v", err)
 		}

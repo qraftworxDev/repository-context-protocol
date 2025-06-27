@@ -156,7 +156,7 @@
 
 ### Phase 2 Testing
 - [x] Advanced tool functionality testing - All integration tests passing
-- [ ] Repository management operations testing - Pending Phase 2.2
+- [X] Repository management operations testing
 - [x] Error scenario validation - Comprehensive error handling implemented
 - [x] Performance benchmarking - Response optimization completed
 
@@ -281,7 +281,7 @@
   - [ ] Performance benchmarks
 
 #### Test Data
-- [ ] **Directory:** `internal/mcp/testdata/`
+- [ ] **Directory:** `testdata/`
   - [ ] Sample MCP requests
   - [ ] Expected responses
   - [ ] Error scenarios
