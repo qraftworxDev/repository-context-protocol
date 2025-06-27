@@ -2,7 +2,6 @@
 
 # Binary names
 BINARY_NAME=repocontext
-LSP_BINARY_NAME=repocontext-lsp
 MCP_BINARY_NAME=repocontext-mcp
 
 # Build info
@@ -20,16 +19,13 @@ help: ## Show this help message
 build: ## Build binaries
 	@echo "Building binaries..."
 	@mkdir -p bin
+	# Building the repocontext binary...
 	@if [ -f "cmd/repocontext/main.go" ]; then \
 		go build $(LDFLAGS) -o bin/$(BINARY_NAME) cmd/repocontext/main.go; \
 	else \
 		echo "cmd/repocontext/main.go not found, skipping $(BINARY_NAME) build"; \
 	fi
-	@if [ -f "cmd/lsp/main.go" ]; then \
-		go build $(LDFLAGS) -o bin/$(LSP_BINARY_NAME) cmd/lsp/main.go; \
-	else \
-		echo "cmd/lsp/main.go not found, skipping $(LSP_BINARY_NAME) build"; \
-	fi
+	# Building the repocontext-mcp binary...
 	@if [ -f "cmd/mcp/main.go" ]; then \
 		go build $(LDFLAGS) -o bin/$(MCP_BINARY_NAME) cmd/mcp/main.go; \
 	else \
@@ -102,7 +98,6 @@ dev-setup: build ## Setup development environment
 
 install: build ## Install binaries to system
 	cp bin/$(BINARY_NAME) /usr/local/bin/
-	cp bin/$(LSP_BINARY_NAME) /usr/local/bin/
 	cp bin/$(MCP_BINARY_NAME) /usr/local/bin/
 
 clean: ## Clean build artifacts

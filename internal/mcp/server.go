@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	constMaxTokens = 2000
+	constMaxTokens = 2000 // TODO: this should not be static - user defined from config
 	constMaxDepth  = 2
 )
 
@@ -44,7 +44,7 @@ func (s *RepoContextMCPServer) Run(ctx context.Context) error {
 	}
 
 	// TODO: Complete MCP server implementation with proper tool registration
-	// For now, return success to indicate server can initialize properly
+	// returning an error for now indicating WIP
 	return fmt.Errorf("MCP server implementation in progress - basic initialization complete")
 }
 
@@ -57,6 +57,7 @@ func (s *RepoContextMCPServer) detectRepositoryRoot() (string, error) {
 	}
 
 	// Walk up the directory tree looking for .git
+	// TODO: this should be improved - what if it's an un-initialized repository?
 	dir := currentDir
 	for {
 		gitPath := filepath.Join(dir, ".git")
@@ -115,327 +116,12 @@ func (s *RepoContextMCPServer) validateRepository() error {
 
 // RegisterQueryTools registers the query-related MCP tools
 func (s *RepoContextMCPServer) RegisterQueryTools() []mcp.Tool {
-	// Query by name tool
-	queryByNameTool := mcp.NewTool("query_by_name",
-		mcp.WithDescription("Search for functions, types, or variables by exact name"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Name to search for")),
-		mcp.WithBoolean("include_callers", mcp.Description("Include functions that call this function")),
-		mcp.WithBoolean("include_callees", mcp.Description("Include functions called by this function")),
-		mcp.WithBoolean("include_types", mcp.Description("Include related type definitions")),
-		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
-	)
-
-	// Query by pattern tool
-	queryByPatternTool := mcp.NewTool("query_by_pattern",
-		mcp.WithDescription(
-			"Search for entities using glob or regex patterns "+
-				"(supports wildcards *, ?, character classes [abc], brace expansion {a,b}, and regex /pattern/)",
-		),
-		mcp.WithString("pattern", mcp.Required(), mcp.Description("Search pattern (supports glob and regex patterns)")),
-		mcp.WithString("entity_type", mcp.Description("Filter by entity type: function, type, variable, constant")),
-		mcp.WithBoolean("include_callers", mcp.Description("Include functions that call matched functions")),
-		mcp.WithBoolean("include_callees", mcp.Description("Include functions called by matched functions")),
-		mcp.WithBoolean("include_types", mcp.Description("Include related type definitions")),
-		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
-	)
-
-	// Get call graph tool
-	getCallGraphTool := mcp.NewTool("get_call_graph",
-		mcp.WithDescription("Get detailed call graph for a function"),
-		mcp.WithString("function_name", mcp.Required(), mcp.Description("Function name to analyze")),
-		mcp.WithNumber("max_depth", mcp.Description("Maximum traversal depth (default: 2)")),
-		mcp.WithBoolean("include_callers", mcp.Description("Include functions that call this function")),
-		mcp.WithBoolean("include_callees", mcp.Description("Include functions called by this function")),
-		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response")),
-	)
-
-	// List functions tool
-	listFunctionsTool := mcp.NewTool("list_functions",
-		mcp.WithDescription("List all functions in the repository with optional filtering and pagination"),
-		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response (default: 2000)")),
-		mcp.WithBoolean("include_signatures", mcp.Description("Include function signatures in the response (default: true)")),
-		mcp.WithNumber("limit", mcp.Description("Maximum number of functions to return (0 for no limit)")),
-		mcp.WithNumber("offset", mcp.Description("Number of functions to skip (for pagination)")),
-	)
-
-	// List types tool
-	listTypesTool := mcp.NewTool("list_types",
-		mcp.WithDescription("List all types in the repository with optional filtering and pagination"),
-		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response (default: 2000)")),
-		mcp.WithBoolean("include_signatures", mcp.Description("Include type signatures in the response (default: true)")),
-		mcp.WithNumber("limit", mcp.Description("Maximum number of types to return (0 for no limit)")),
-		mcp.WithNumber("offset", mcp.Description("Number of types to skip (for pagination)")),
-	)
-
-	return []mcp.Tool{queryByNameTool, queryByPatternTool, getCallGraphTool, listFunctionsTool, listTypesTool}
+	return s.RegisterAdvancedQueryTools()
 }
 
 // RegisterRepoTools registers the repository management MCP tools
 func (s *RepoContextMCPServer) RegisterRepoTools() {
 	// Implementation will be added as we develop the tools
-}
-
-// HandleQueryByName handles the query_by_name MCP tool
-func (s *RepoContextMCPServer) HandleQueryByName(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Check for system-level failures that prevent operation
-	if s.QueryEngine == nil {
-		return nil, fmt.Errorf("query engine not initialized - system configuration error")
-	}
-
-	// Validate repository first
-	if err := s.validateRepository(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-	}
-
-	// Parse parameters using the MCP library helper functions
-	name := request.GetString("name", "")
-	if name == "" {
-		return mcp.NewToolResultError("name parameter is required"), nil
-	}
-
-	includeCallers := request.GetBool("include_callers", false)
-	includeCallees := request.GetBool("include_callees", false)
-	includeTypes := request.GetBool("include_types", false)
-	maxTokens := request.GetInt("max_tokens", constMaxTokens)
-
-	// Build query options
-	queryOptions := index.QueryOptions{
-		IncludeCallers: includeCallers,
-		IncludeCallees: includeCallees,
-		IncludeTypes:   includeTypes,
-		MaxTokens:      maxTokens,
-		Format:         "json",
-	}
-
-	// Execute the query using the query engine
-	searchResult, err := s.QueryEngine.SearchByNameWithOptions(name, queryOptions)
-	if err != nil {
-		return s.FormatErrorResponse("query_by_name", err), nil
-	}
-
-	// Return the formatted result
-	return s.FormatSuccessResponse(searchResult), nil
-}
-
-// validateEntityType validates the entity_type parameter
-func (s *RepoContextMCPServer) validateEntityType(entityType string) error {
-	if entityType == "" {
-		return nil // Empty is valid (no filter)
-	}
-
-	validEntityTypes := []string{"function", "type", "variable", "constant"}
-	for _, validType := range validEntityTypes {
-		if entityType == validType {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid entity_type '%s', must be one of: function, type, variable, constant", entityType)
-}
-
-// executePatternSearchWithFilter executes pattern search with optional entity type filtering
-func (s *RepoContextMCPServer) executePatternSearchWithFilter(
-	pattern, entityType string,
-	queryOptions index.QueryOptions,
-) (*index.SearchResult, error) {
-	searchResult, err := s.QueryEngine.SearchByPatternWithOptions(pattern, queryOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	// Apply entity type filter if specified
-	if entityType != "" {
-		filteredEntries := make([]index.SearchResultEntry, 0)
-		for _, entry := range searchResult.Entries {
-			if entry.IndexEntry.Type == entityType {
-				filteredEntries = append(filteredEntries, entry)
-			}
-		}
-		searchResult.Entries = filteredEntries
-	}
-
-	return searchResult, nil
-}
-
-// HandleQueryByPattern handles the query_by_pattern MCP tool
-func (s *RepoContextMCPServer) HandleQueryByPattern(
-	_ context.Context,
-	request mcp.CallToolRequest,
-) (*mcp.CallToolResult, error) {
-	// Check for system-level failures that prevent operation
-	if s.QueryEngine == nil {
-		return nil, fmt.Errorf("query engine not initialized - system configuration error")
-	}
-
-	// Validate repository first
-	if err := s.validateRepository(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-	}
-
-	// Parse parameters using the MCP library helper functions
-	pattern := request.GetString("pattern", "")
-	if pattern == "" {
-		return mcp.NewToolResultError("pattern parameter is required"), nil
-	}
-
-	entityType := request.GetString("entity_type", "")
-	includeCallers := request.GetBool("include_callers", false)
-	includeCallees := request.GetBool("include_callees", false)
-	includeTypes := request.GetBool("include_types", false)
-	maxTokens := request.GetInt("max_tokens", constMaxTokens)
-
-	// Validate entity type if provided
-	if err := s.validateEntityType(entityType); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	// Build query options
-	queryOptions := index.QueryOptions{
-		IncludeCallers: includeCallers,
-		IncludeCallees: includeCallees,
-		IncludeTypes:   includeTypes,
-		MaxTokens:      maxTokens,
-		Format:         "json",
-	}
-
-	// Execute the pattern search with optional filtering
-	searchResult, err := s.executePatternSearchWithFilter(pattern, entityType, queryOptions)
-	if err != nil {
-		return s.FormatErrorResponse("query_by_pattern", err), nil
-	}
-
-	// Return the formatted result
-	return s.FormatSuccessResponse(searchResult), nil
-}
-
-// HandleGetCallGraph handles the get_call_graph MCP tool
-func (s *RepoContextMCPServer) HandleGetCallGraph(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Check for system-level failures that prevent operation
-	if s.QueryEngine == nil {
-		return nil, fmt.Errorf("query engine not initialized - system configuration error")
-	}
-
-	// Validate repository first
-	if err := s.validateRepository(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-	}
-
-	// Parse parameters using the MCP library helper functions
-	functionName := request.GetString("function_name", "")
-	if functionName == "" {
-		return mcp.NewToolResultError("function_name parameter is required"), nil
-	}
-
-	maxDepth := request.GetInt("max_depth", constMaxDepth)
-	if maxDepth <= 0 {
-		maxDepth = constMaxDepth
-	}
-
-	includeCallers := request.GetBool("include_callers", true) // Default to true
-	includeCallees := request.GetBool("include_callees", true) // Default to true
-	maxTokens := request.GetInt("max_tokens", constMaxTokens)
-
-	// Build query options
-	queryOptions := index.QueryOptions{
-		IncludeCallers: includeCallers,
-		IncludeCallees: includeCallees,
-		MaxDepth:       maxDepth,
-		MaxTokens:      maxTokens,
-		Format:         "json",
-	}
-
-	// Execute the call graph query using the query engine
-	callGraphResult, err := s.QueryEngine.GetCallGraphWithOptions(functionName, queryOptions)
-	if err != nil {
-		return s.FormatErrorResponse("get_call_graph", err), nil
-	}
-
-	// Return the formatted result
-	return s.FormatSuccessResponse(callGraphResult), nil
-}
-
-// handleListEntities is a common helper for listing entities by type (functions, types, etc.)
-func (s *RepoContextMCPServer) handleListEntities(
-	request mcp.CallToolRequest,
-	entityType, toolName string,
-) (*mcp.CallToolResult, error) {
-	// Check for system-level failures that prevent operation
-	if s.QueryEngine == nil {
-		return nil, fmt.Errorf("query engine not initialized - system configuration error")
-	}
-
-	// Validate repository first
-	if err := s.validateRepository(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-	}
-
-	// Parse parameters using the MCP library helper functions
-	maxTokens := request.GetInt("max_tokens", constMaxTokens)
-	includeSignatures := request.GetBool("include_signatures", true)
-	limit := request.GetInt("limit", 0)   // 0 means no limit
-	offset := request.GetInt("offset", 0) // 0 means no offset
-
-	// Build query options
-	queryOptions := index.QueryOptions{
-		MaxTokens: maxTokens,
-		Format:    "json",
-	}
-
-	// Search for all entities of the specified type using the query engine
-	searchResult, err := s.QueryEngine.SearchByTypeWithOptions(entityType, queryOptions)
-	if err != nil {
-		return s.FormatErrorResponse(toolName, err), nil
-	}
-
-	// Apply pagination if requested
-	if limit > 0 || offset > 0 {
-		s.applyPagination(searchResult, limit, offset)
-	}
-
-	// Filter out signatures if not requested
-	if !includeSignatures {
-		s.removeSignatures(searchResult)
-	}
-
-	// Return the formatted result
-	return s.FormatSuccessResponse(searchResult), nil
-}
-
-// HandleListFunctions handles the list_functions MCP tool
-func (s *RepoContextMCPServer) HandleListFunctions(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleListEntities(request, "function", "list_functions")
-}
-
-// HandleListTypes handles the list_types MCP tool
-func (s *RepoContextMCPServer) HandleListTypes(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleListEntities(request, "type", "list_types")
-}
-
-// applyPagination applies limit and offset to search results
-func (s *RepoContextMCPServer) applyPagination(result *index.SearchResult, limit, offset int) {
-	totalEntries := len(result.Entries)
-
-	// Apply offset
-	if offset > 0 {
-		if offset >= totalEntries {
-			result.Entries = []index.SearchResultEntry{}
-			return
-		}
-		result.Entries = result.Entries[offset:]
-	}
-
-	// Apply limit
-	if limit > 0 && limit < len(result.Entries) {
-		result.Entries = result.Entries[:limit]
-		result.Truncated = true
-	}
-}
-
-// removeSignatures removes signature information from search results when not requested
-func (s *RepoContextMCPServer) removeSignatures(result *index.SearchResult) {
-	for i := range result.Entries {
-		result.Entries[i].IndexEntry.Signature = ""
-	}
 }
 
 // FormatSuccessResponse formats a successful response for MCP

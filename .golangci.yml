@@ -92,3 +92,7 @@ issues:
       text: "Function 'ParseFile' is too long"
       linters:
         - funlen
+    - path: internal/mcp/tools\.go
+      text: "Function 'collectDetailedStatistics' has too many statements"
+      linters:
+        - funlen

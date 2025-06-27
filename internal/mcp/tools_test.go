@@ -2,14 +2,18 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/mcp-go/mcp"
-
 	"repository-context-protocol/internal/index"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// TestRepoContextMCPServer_RegisterQueryTools tests basic tool registration
 func TestRepoContextMCPServer_RegisterQueryTools(t *testing.T) {
 	server := NewRepoContextMCPServer()
 
@@ -20,51 +24,226 @@ func TestRepoContextMCPServer_RegisterQueryTools(t *testing.T) {
 		}
 	}()
 
-	server.RegisterQueryTools()
+	tools := server.RegisterQueryTools()
+
+	// Expected tools in the correct order
+	expectedTools := []struct {
+		name        string
+		description string
+	}{
+		{
+			name:        "query_by_name",
+			description: "Search for functions, types, or variables by exact name with advanced options",
+		},
+		{
+			name: "query_by_pattern",
+			description: "Search for entities using glob or regex patterns with advanced filtering " +
+				"(supports wildcards *, ?, character classes [abc], brace expansion {a,b}, and regex /pattern/). " +
+				"This tool is useful for searching for entities in the repository.",
+		},
+		{
+			name:        "get_call_graph",
+			description: "Get detailed call graph for a function with configurable depth and selective inclusion",
+		},
+		{
+			name:        "list_functions",
+			description: "List all functions in the repository with pagination and signature control",
+		},
+		{
+			name:        "list_types",
+			description: "List all types in the repository with pagination and signature control",
+		},
+	}
+
+	// Verify exact number of tools returned
+	if len(tools) != len(expectedTools) {
+		t.Errorf("Expected %d tools, got %d", len(expectedTools), len(tools))
+	}
+
+	// Create map for efficient lookup
+	toolsByName := make(map[string]mcp.Tool)
+	for _, tool := range tools {
+		toolsByName[tool.Name] = tool
+	}
+
+	// Verify each expected tool is present with correct properties
+	for _, expected := range expectedTools {
+		tool, exists := toolsByName[expected.name]
+		if !exists {
+			t.Errorf("Expected tool '%s' not found in registered tools", expected.name)
+			continue
+		}
+
+		// Validate tool name
+		if tool.Name != expected.name {
+			t.Errorf("Tool name mismatch: expected '%s', got '%s'", expected.name, tool.Name)
+		}
+
+		// Validate tool description
+		if tool.Description != expected.description {
+			t.Errorf("Tool '%s' description mismatch:\nExpected: %s\nGot: %s", expected.name, expected.description, tool.Description)
+		}
+
+		// Validate that tool has a non-empty description
+		if tool.Description == "" {
+			t.Errorf("Tool '%s' should have a description", tool.Name)
+		}
+
+		// Validate that tool has input schema (all tools should have parameters)
+		if tool.InputSchema.Type == "" {
+			t.Errorf("Tool '%s' should have input schema with type defined", tool.Name)
+		}
+	}
+
+	// Verify no unexpected tools are present
+	for _, tool := range tools {
+		found := false
+		for _, expected := range expectedTools {
+			if tool.Name == expected.name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Unexpected tool '%s' found in registered tools", tool.Name)
+		}
+	}
 }
 
-func TestRepoContextMCPServer_registerRepoTools(t *testing.T) {
+// TestRepoContextMCPServer_RegisterRepoTools tests repo tools registration
+func TestRepoContextMCPServer_RegisterRepoTools(t *testing.T) {
 	server := NewRepoContextMCPServer()
 
 	// Test that tool registration doesn't panic
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("registerRepoTools panicked: %v", r)
+			t.Errorf("RegisterRepoTools panicked: %v", r)
 		}
 	}()
 
 	server.RegisterRepoTools()
 }
 
-func TestRepoContextMCPServer_formatSuccessResponse(t *testing.T) {
-	server := NewRepoContextMCPServer()
-
-	data := map[string]interface{}{
-		"test":   "value",
-		"number": 42,
+// TestAdvancedHandlers_ValidationFlow tests the advanced handlers follow proper validation flow
+func TestAdvancedHandlers_ValidationFlow(t *testing.T) {
+	testCases := []struct {
+		name        string
+		toolName    string
+		handlerFunc func(*RepoContextMCPServer, context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	}{
+		{
+			name:     "HandleAdvancedQueryByName",
+			toolName: "query_by_name",
+			handlerFunc: func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return server.HandleAdvancedQueryByName(ctx, request)
+			},
+		},
+		{
+			name:     "HandleAdvancedQueryByPattern",
+			toolName: "query_by_pattern",
+			handlerFunc: func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return server.HandleAdvancedQueryByPattern(ctx, request)
+			},
+		},
+		{
+			name:     "HandleAdvancedGetCallGraph",
+			toolName: "get_call_graph",
+			handlerFunc: func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return server.HandleAdvancedGetCallGraph(ctx, request)
+			},
+		},
+		{
+			name:     "HandleAdvancedListFunctions",
+			toolName: "list_functions",
+			handlerFunc: func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return server.HandleAdvancedListFunctions(ctx, request)
+			},
+		},
+		{
+			name:     "HandleAdvancedListTypes",
+			toolName: "list_types",
+			handlerFunc: func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return server.HandleAdvancedListTypes(ctx, request)
+			},
+		},
 	}
 
-	result := server.FormatSuccessResponse(data)
-	if result == nil {
-		t.Fatal("formatSuccessResponse should not return nil")
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test system error for nil query engine
+			t.Run("nil_query_engine", func(t *testing.T) {
+				server := NewRepoContextMCPServer()
+				// QueryEngine is nil by default
 
-	if result.IsError {
-		t.Error("formatSuccessResponse should not return error result")
+				request := mcp.CallToolRequest{}
+				_, err := tc.handlerFunc(server, context.Background(), request)
+
+				if err == nil {
+					t.Error("Expected system error for nil query engine")
+				}
+			})
+
+			// Test repository validation error
+			t.Run("repository_validation", func(t *testing.T) {
+				server := NewRepoContextMCPServer()
+				server.QueryEngine = &index.QueryEngine{} // Set dummy query engine
+				server.RepoPath = "/tmp/nonexistent"      // Path that doesn't exist
+
+				request := mcp.CallToolRequest{}
+				result, err := tc.handlerFunc(server, context.Background(), request)
+
+				if err != nil {
+					t.Fatalf("Handler should not return system error: %v", err)
+				}
+
+				if result == nil || !result.IsError {
+					t.Error("Expected error result for repository validation")
+				}
+			})
+		})
 	}
 }
 
-func TestRepoContextMCPServer_formatErrorResponse(t *testing.T) {
+// TestResponseFormatting tests the shared response formatting methods
+func TestResponseFormatting(t *testing.T) {
 	server := NewRepoContextMCPServer()
 
-	result := server.FormatErrorResponse("test_operation", &TestError{"test error"})
-	if result == nil {
-		t.Fatal("formatErrorResponse should not return nil")
-	}
+	t.Run("FormatSuccessResponse", func(t *testing.T) {
+		data := map[string]interface{}{
+			"test":   "value",
+			"number": 42,
+		}
 
-	if !result.IsError {
-		t.Error("formatErrorResponse should return error result")
-	}
+		result := server.FormatSuccessResponse(data)
+		if result == nil {
+			t.Fatal("FormatSuccessResponse should not return nil")
+		}
+
+		if result.IsError {
+			t.Error("FormatSuccessResponse should not return error result")
+		}
+
+		if len(result.Content) == 0 {
+			t.Error("Expected content in response")
+		}
+	})
+
+	t.Run("FormatErrorResponse", func(t *testing.T) {
+		testErr := &TestError{"test error"}
+
+		result := server.FormatErrorResponse("test_operation", testErr)
+		if result == nil {
+			t.Fatal("FormatErrorResponse should not return nil")
+		}
+
+		if !result.IsError {
+			t.Error("FormatErrorResponse should return error result")
+		}
+
+		if len(result.Content) == 0 {
+			t.Error("Expected content in error response")
+		}
+	})
 }
 
 // Helper for testing
@@ -76,658 +255,845 @@ func (e *TestError) Error() string {
 	return e.msg
 }
 
-// testHandlerValidationFlow is a helper function to test common handler validation patterns
-func testHandlerValidationFlow(
-	t *testing.T,
-	toolName string,
-	handlerFunc func(*RepoContextMCPServer, mcp.CallToolRequest) (*mcp.CallToolResult, error),
-) {
-	server := NewRepoContextMCPServer()
-	server.QueryEngine = &index.QueryEngine{} // Set dummy query engine to pass nil check
-	server.RepoPath = "/tmp/test-repo"        // Set a test path that doesn't exist
-
-	// Since our mock request doesn't provide real parameters,
-	// we can only test that the handler follows the expected flow
-	request := createMockCallToolRequest(toolName, map[string]any{})
-
-	result, err := handlerFunc(server, request)
-
-	if err != nil {
-		t.Fatalf("Handler returned unexpected error: %v", err)
-	}
-
-	// Should get error for repository validation (happens before parameter parsing)
-	if result != nil && result.IsError {
-		if len(result.Content) > 0 {
-			textContent, ok := result.Content[0].(mcp.TextContent)
-			if ok && textContent.Text != "" {
-				// The handler should detect repository validation error first
-				if !strings.Contains(textContent.Text, "Repository validation failed") {
-					t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
-				}
-			}
-		}
-	} else {
-		t.Error("Expected error result for repository validation")
-	}
-}
-
-// testHandlerQueryEngineNotInitialized is a helper function to test nil query engine error handling
-func testHandlerQueryEngineNotInitialized(
-	t *testing.T,
-	toolName string,
-	params map[string]any,
-	handlerFunc func(*RepoContextMCPServer, mcp.CallToolRequest) (*mcp.CallToolResult, error),
-) {
-	server := NewRepoContextMCPServer()
-	// queryEngine is nil by default
-
-	request := createMockCallToolRequest(toolName, params)
-
-	result, err := handlerFunc(server, request)
-
-	// Should return system error for nil query engine
-	if err == nil {
-		t.Error("Expected system error for nil query engine")
-	}
-	if result != nil {
-		t.Error("Expected nil result when system error occurs")
-	}
-}
-
-// testHandlerRepositoryValidation is a helper function to test repository validation error handling
-func testHandlerRepositoryValidation(
-	t *testing.T,
-	toolName string,
-	handlerFunc func(*RepoContextMCPServer, mcp.CallToolRequest) (*mcp.CallToolResult, error),
-) {
-	server := NewRepoContextMCPServer()
-	server.QueryEngine = &index.QueryEngine{} // Set dummy query engine to pass nil check
-	server.RepoPath = "/tmp/test"             // Set path that doesn't exist
-
-	// Our mock request always returns empty string parameters
-	request := createMockCallToolRequest(toolName, map[string]any{})
-
-	result, err := handlerFunc(server, request)
-
-	if err != nil {
-		t.Fatalf("Handler returned unexpected error: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Handler returned nil result")
-	}
-
-	// Should get error for repository validation (happens before parameter validation)
-	if !result.IsError {
-		t.Error("Expected error result for repository validation")
-	}
-
-	if len(result.Content) > 0 {
-		textContent, ok := result.Content[0].(mcp.TextContent)
-		if ok && textContent.Text != "" {
-			// Verify it's the repository validation error
-			if !strings.Contains(textContent.Text, "Repository validation failed") {
-				t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
-			}
-		}
-	}
-}
-
-// testHandlerValidation is a comprehensive helper function to test both validation scenarios
-func testHandlerValidation(
-	t *testing.T,
-	toolName string,
-	queryEngineParams map[string]any,
-	handlerFunc func(*RepoContextMCPServer, mcp.CallToolRequest) (*mcp.CallToolResult, error),
-) {
-	t.Run("query engine not initialized", func(t *testing.T) {
-		testHandlerQueryEngineNotInitialized(t, toolName, queryEngineParams, handlerFunc)
-	})
-
-	t.Run("repository validation with mock request", func(t *testing.T) {
-		testHandlerRepositoryValidation(t, toolName, handlerFunc)
-	})
-}
-
-func TestHandleQueryByName_Validation(t *testing.T) {
-	testHandlerValidation(
-		t,
-		"query_by_name",
-		map[string]any{"name": "testFunction"},
-		func(
-			server *RepoContextMCPServer, request mcp.CallToolRequest,
-		) (*mcp.CallToolResult, error) {
-			return server.HandleQueryByName(context.Background(), request)
-		},
-	)
-}
-
-func TestHandleQueryByName_ParameterParsing(t *testing.T) {
-	t.Run("handler validation flow", func(t *testing.T) {
-		testHandlerValidationFlow(
-			t,
-			"query_by_name",
-			func(
-				server *RepoContextMCPServer, request mcp.CallToolRequest,
-			) (*mcp.CallToolResult, error) {
-				return server.HandleQueryByName(context.Background(), request)
-			},
-		)
-	})
-
-	// Note: Parameter parsing testing is limited by our simplified mock.
-	// In a real scenario, the MCP library handles complex request parsing.
-	// Integration tests with actual MCP requests would validate full parameter flow.
-}
-
-func TestHandleQueryByName_ResponseFormat(t *testing.T) {
-	// This test will verify the response format once we implement the actual functionality
-	t.Skip("Skipping response format test until implementation is complete")
-}
-
-func TestHandleQueryByPattern_Validation(t *testing.T) {
-	testHandlerValidation(
-		t,
-		"query_by_pattern",
-		map[string]any{"pattern": "Test*"},
-		func(
-			server *RepoContextMCPServer, request mcp.CallToolRequest,
-		) (*mcp.CallToolResult, error) {
-			return server.HandleQueryByPattern(context.Background(), request)
-		},
-	)
-}
-
-func TestHandleQueryByPattern_ParameterParsing(t *testing.T) {
-	t.Run("pattern parameter required", func(t *testing.T) {
-		testHandlerValidationFlow(
-			t,
-			"query_by_pattern",
-			func(
-				server *RepoContextMCPServer,
-				request mcp.CallToolRequest,
-			) (*mcp.CallToolResult, error) {
-				return server.HandleQueryByPattern(context.Background(), request)
-			},
-		)
-	})
-
-	t.Run("entity type validation", func(t *testing.T) {
-		server := NewRepoContextMCPServer()
-		server.QueryEngine = &index.QueryEngine{}
-		server.RepoPath = "/tmp/test-repo"
-
-		// Test with invalid entity type - this test is conceptual as mock doesn't support parameter injection
-		request := createMockCallToolRequest("query_by_pattern", map[string]any{
-			"pattern":     "Test*",
-			"entity_type": "invalid_type",
-		})
-
-		result, err := server.HandleQueryByPattern(context.Background(), request)
-
+// TestInitializeRepository tests the initialize_repository tool functionality
+func TestInitializeRepository(t *testing.T) {
+	t.Run("successful initialization in current directory", func(t *testing.T) {
+		// Create a temporary directory to simulate current directory
+		tempDir, err := os.MkdirTemp("", "init_test")
 		if err != nil {
-			t.Fatalf("HandleQueryByPattern returned unexpected error: %v", err)
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		// Create server and change to temp directory
+		server := NewRepoContextMCPServer()
+		originalDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get current directory: %v", err)
+		}
+		defer func() {
+			if err = os.Chdir(originalDir); err != nil {
+				t.Fatalf("Failed to change back to original directory: %v", err)
+			}
+		}()
+
+		if err = os.Chdir(tempDir); err != nil {
+			t.Fatalf("Failed to change to temp directory: %v", err)
 		}
 
-		// Should get repository validation error first due to mock limitations
-		if result != nil && result.IsError {
-			textContent, ok := result.Content[0].(mcp.TextContent)
-			if ok && textContent.Text != "" {
-				// The handler should detect repository validation error first
-				if !strings.Contains(textContent.Text, "Repository validation failed") {
-					t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
-				}
-			}
+		// Create a simple mock request without path parameter
+		request := mcp.CallToolRequest{}
+
+		result, err := server.HandleInitializeRepository(context.Background(), request)
+
+		// Verify success
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Fatal("Expected result, got nil")
+		}
+		if result.IsError {
+			t.Errorf("Expected success result, got error: %v", result.Content)
+		}
+
+		// Verify .repocontext directory was created
+		repoContextPath := filepath.Join(tempDir, ".repocontext")
+		if _, err := os.Stat(repoContextPath); os.IsNotExist(err) {
+			t.Error("Expected .repocontext directory to be created")
+		}
+
+		// Verify chunks directory was created
+		chunksPath := filepath.Join(repoContextPath, "chunks")
+		if _, err := os.Stat(chunksPath); os.IsNotExist(err) {
+			t.Error("Expected chunks directory to be created")
+		}
+
+		// Verify manifest.json was created
+		manifestPath := filepath.Join(repoContextPath, "manifest.json")
+		if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+			t.Error("Expected manifest.json to be created")
+		}
+	})
+
+	t.Run("successful initialization with custom path", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "init_custom_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Create mock request with custom path
+		// Since we can't easily mock the MCP request structure, we'll test the underlying logic
+		params := &InitializeRepositoryParams{
+			Path: tempDir,
+		}
+
+		// Test parameter parsing logic
+		if params.Path != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, params.Path)
+		}
+
+		// Test path determination
+		determinedPath, err := server.determineInitializationPath(params.Path)
+		if err != nil {
+			t.Fatalf("Failed to determine path: %v", err)
+		}
+
+		// Test path validation
+		err = server.validateInitializationPath(determinedPath)
+		if err != nil {
+			t.Fatalf("Path validation failed: %v", err)
+		}
+
+		// Test initialization
+		result, err := server.initializeRepositoryStructure(determinedPath)
+		if err != nil {
+			t.Fatalf("Initialization failed: %v", err)
+		}
+
+		if result.AlreadyInitialized {
+			t.Error("Expected new initialization, got already initialized")
+		}
+		if len(result.CreatedDirectories) == 0 {
+			t.Error("Expected directories to be created")
+		}
+		if len(result.CreatedFiles) == 0 {
+			t.Error("Expected files to be created")
 		}
 	})
 
-	// Note: Full parameter validation testing is limited by our simplified mock.
-	// In a real scenario, the MCP library handles complex request parsing.
-	// Integration tests with actual MCP requests would validate full parameter flow.
-}
+	t.Run("already initialized repository", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "init_existing_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
 
-func TestHandleQueryByPattern_EntityTypeValidation(t *testing.T) {
-	// Test entity type validation logic directly
-	validEntityTypes := []string{"function", "type", "variable", "constant"}
+		// Pre-create .repocontext directory
+		repoContextPath := filepath.Join(tempDir, ".repocontext")
+		err = os.MkdirAll(repoContextPath, 0755)
+		if err != nil {
+			t.Fatalf("Failed to create existing .repocontext: %v", err)
+		}
 
-	for _, validType := range validEntityTypes {
-		t.Run("valid_entity_type_"+validType, func(t *testing.T) {
-			// Test that valid entity types are accepted
-			// This is a conceptual test since we can't easily mock the parameter parsing
-			server := NewRepoContextMCPServer()
-			server.QueryEngine = &index.QueryEngine{}
-			server.RepoPath = "/tmp/test-repo"
+		server := NewRepoContextMCPServer()
 
-			// In a real test, we would test that the entity type validation logic
-			// accepts these valid types. For now, we test the logic exists.
-			if len(validEntityTypes) == 0 {
-				t.Error("Valid entity types should not be empty")
-			}
-		})
-	}
+		// Test initialization on already initialized repository
+		result, err := server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Initialization failed: %v", err)
+		}
 
-	t.Run("invalid_entity_types", func(t *testing.T) {
-		invalidTypes := []string{"invalid", "class", "method", "field"}
+		if !result.AlreadyInitialized {
+			t.Error("Expected already initialized status")
+		}
+		if len(result.CreatedDirectories) != 0 {
+			t.Error("Expected no new directories to be created")
+		}
+		if result.Message != "Repository already initialized" {
+			t.Errorf("Expected 'Repository already initialized' message, got: %s", result.Message)
+		}
+	})
 
-		for _, invalidType := range invalidTypes {
-			// Test that invalid entity types would be rejected
-			// This is a conceptual test since we can't easily mock the parameter parsing
-			isValid := false
-			validEntityTypes := []string{"function", "type", "variable", "constant"}
-			for _, validType := range validEntityTypes {
-				if invalidType == validType {
-					isValid = true
-					break
-				}
-			}
+	t.Run("invalid path validation", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
 
-			if isValid {
-				t.Errorf("Type '%s' should be invalid but was found in valid types", invalidType)
-			}
+		// Test with non-existent path
+		err := server.validateInitializationPath("/nonexistent/invalid/path")
+		if err == nil {
+			t.Error("Expected error for non-existent path")
+		}
+
+		// Test with file instead of directory
+		tempFile, err := os.CreateTemp("", "not_a_dir")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		tempFile.Close()
+
+		err = server.validateInitializationPath(tempFile.Name())
+		if err == nil {
+			t.Error("Expected error for file path instead of directory")
+		}
+	})
+
+	t.Run("path determination logic", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test empty path (should use current directory)
+		path, err := server.determineInitializationPath("")
+		if err != nil {
+			t.Errorf("Failed to determine path for empty string: %v", err)
+		}
+		if path == "" {
+			t.Error("Expected non-empty path for empty input")
+		}
+
+		// Test custom path
+		customPath := "/tmp/custom"
+		path, err = server.determineInitializationPath(customPath)
+		if err != nil {
+			t.Errorf("Failed to determine path for custom path: %v", err)
+		}
+		if !filepath.IsAbs(path) {
+			t.Error("Expected absolute path to be returned")
+		}
+	})
+
+	t.Run("manifest creation", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "manifest_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+		manifestPath := filepath.Join(tempDir, "manifest.json")
+
+		// Test manifest creation
+		err = server.createInitialManifest(manifestPath)
+		if err != nil {
+			t.Fatalf("Failed to create manifest: %v", err)
+		}
+
+		// Verify manifest file exists
+		if _, err = os.Stat(manifestPath); os.IsNotExist(err) {
+			t.Error("Expected manifest file to be created")
+		}
+
+		// Verify manifest content
+		manifestContent, err := os.ReadFile(manifestPath)
+		if err != nil {
+			t.Fatalf("Failed to read manifest: %v", err)
+		}
+
+		var manifest map[string]interface{}
+		err = json.Unmarshal(manifestContent, &manifest)
+		if err != nil {
+			t.Fatalf("Failed to parse manifest JSON: %v", err)
+		}
+
+		if manifest["version"] != "1.0" {
+			t.Errorf("Expected version '1.0', got: %v", manifest["version"])
+		}
+		if manifest["description"] == nil {
+			t.Error("Expected description field in manifest")
+		}
+		if manifest["created_at"] == nil {
+			t.Error("Expected created_at field in manifest")
 		}
 	})
 }
 
-func TestHandleQueryByPattern_ResponseFormat(t *testing.T) {
-	// This test will verify the response format once we implement the actual functionality
-	t.Skip("Skipping response format test until implementation is complete")
-}
-
-// Helper function to create mock MCP call tool requests
-// Note: This is a simplified test version. In real usage, the MCP library handles request parsing.
-func createMockCallToolRequest(toolName string, params map[string]interface{}) mcp.CallToolRequest {
-	// For testing, we'll skip complex mock creation and test the implementation directly
-	// by running integration tests after implementing the real functionality
-	return mcp.CallToolRequest{}
-}
-
-func TestHandleGetCallGraph_Validation(t *testing.T) {
-	testHandlerValidation(
-		t,
-		"get_call_graph",
-		map[string]any{"function_name": "testFunction"},
-		func(
-			server *RepoContextMCPServer, request mcp.CallToolRequest,
-		) (*mcp.CallToolResult, error) {
-			return server.HandleGetCallGraph(context.Background(), request)
-		},
-	)
-}
-
-func TestHandleGetCallGraph_ParameterParsing(t *testing.T) {
-	server := NewRepoContextMCPServer()
-	server.QueryEngine = &index.QueryEngine{} // Set dummy query engine to pass nil check
-	server.RepoPath = "/tmp/test"             // Set path that doesn't exist
-
-	// Test with missing function_name parameter
-	request := createMockCallToolRequest("get_call_graph", map[string]any{})
-	result, err := server.HandleGetCallGraph(context.Background(), request)
-
-	if err != nil {
-		t.Fatalf("Handler returned unexpected error: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Handler returned nil result")
-	}
-
-	// Should get error for repository validation first (happens before parameter parsing)
-	if !result.IsError {
-		t.Error("Expected error result for repository validation")
-	}
-
-	// Verify error message
-	if len(result.Content) > 0 {
-		textContent, ok := result.Content[0].(mcp.TextContent)
-		if ok && textContent.Text != "" {
-			if !strings.Contains(textContent.Text, "Repository validation failed") {
-				t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
-			}
+// TestBuildIndex tests the build_index tool functionality
+func TestBuildIndex(t *testing.T) {
+	t.Run("successful index build in current directory", func(t *testing.T) {
+		// Create a temporary directory to simulate repository
+		tempDir, err := os.MkdirTemp("", "build_index_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
 		}
-	}
-}
+		defer os.RemoveAll(tempDir)
 
-func TestHandleGetCallGraph_ParameterValidation(t *testing.T) {
-	tests := []struct {
-		name           string
-		functionName   string
-		maxDepth       int
-		includeCallers bool
-		includeCallees bool
-		expectedError  string
-	}{
-		{
-			name:          "empty function name",
-			functionName:  "",
-			expectedError: "function_name parameter is required",
-		},
-		{
-			name:         "valid function name",
-			functionName: "testFunction",
-			maxDepth:     2,
-		},
-		{
-			name:         "default max_depth",
-			functionName: "testFunction",
-			maxDepth:     0, // Should default to 2
-		},
-		{
-			name:           "include callers only",
-			functionName:   "testFunction",
-			includeCallers: true,
-		},
-		{
-			name:           "include callees only",
-			functionName:   "testFunction",
-			includeCallees: true,
-		},
-		{
-			name:           "include both",
-			functionName:   "testFunction",
-			includeCallers: true,
-			includeCallees: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := NewRepoContextMCPServer()
-			server.QueryEngine = &index.QueryEngine{} // Set dummy query engine to pass nil check
-			server.RepoPath = "/tmp/test"             // Set path that doesn't exist
-
-			// Create mock request with parameters
-			params := map[string]any{
-				"function_name": tt.functionName,
-			}
-			if tt.maxDepth > 0 {
-				params["max_depth"] = tt.maxDepth
-			}
-			if tt.includeCallers {
-				params["include_callers"] = tt.includeCallers
-			}
-			if tt.includeCallees {
-				params["include_callees"] = tt.includeCallees
-			}
-
-			request := createMockCallToolRequest("get_call_graph", params)
-			result, err := server.HandleGetCallGraph(context.Background(), request)
-
-			if err != nil {
-				t.Fatalf("Handler returned unexpected error: %v", err)
-			}
-
-			if result == nil {
-				t.Fatal("Handler returned nil result")
-			}
-
-			// For empty function name, should get parameter validation error
-			if tt.expectedError != "" {
-				if !result.IsError {
-					t.Error("Expected error result for parameter validation")
-				}
-				// Note: Our mock implementation means we get repository validation error first
-				// In real usage, the parameter validation would happen
-			} else {
-				// For valid parameters, should get repository validation error (since test repo doesn't exist)
-				if !result.IsError {
-					t.Error("Expected error result for repository validation")
-				}
-			}
-		})
-	}
-}
-
-func TestHandleGetCallGraph_ResponseFormat(t *testing.T) {
-	server := NewRepoContextMCPServer()
-
-	// Test successful response formatting
-	callGraphInfo := &index.CallGraphInfo{
-		Function: "testFunction",
-		Callers: []index.CallGraphEntry{
-			{Function: "caller1", File: "test.go", Line: 10},
-		},
-		Callees: []index.CallGraphEntry{
-			{Function: "callee1", File: "test.go", Line: 20},
-		},
-		Depth: 2,
-	}
-
-	result := server.FormatSuccessResponse(callGraphInfo)
-	if result == nil {
-		t.Fatal("formatSuccessResponse should not return nil")
-	}
-
-	if result.IsError {
-		t.Error("formatSuccessResponse should not return error result")
-	}
-
-	// Verify JSON content
-	if len(result.Content) > 0 {
-		textContent, ok := result.Content[0].(mcp.TextContent)
-		if !ok {
-			t.Error("Expected TextContent in result")
-		} else if textContent.Text == "" {
-			t.Error("Expected non-empty text content")
+		// Initialize repository first
+		server := NewRepoContextMCPServer()
+		result, err := server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
 		}
-	}
+		if result.AlreadyInitialized {
+			t.Fatal("Expected new initialization")
+		}
+
+		// Create a simple Go file for testing
+		goFile := filepath.Join(tempDir, "main.go")
+		goContent := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, World!")
 }
 
-func TestHandleListFunctions_Validation(t *testing.T) {
-	testHandlerValidation(
-		t,
-		"list_functions",
-		map[string]any{},
-		func(
-			server *RepoContextMCPServer, request mcp.CallToolRequest,
-		) (*mcp.CallToolResult, error) {
-			return server.HandleListFunctions(context.Background(), request)
-		},
-	)
+func helper() string {
+	return "helper"
 }
+`
+		err = os.WriteFile(goFile, []byte(goContent), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file: %v", err)
+		}
 
-func TestHandleListFunctions_ParameterParsing(t *testing.T) {
-	server := NewRepoContextMCPServer()
-	server.QueryEngine = &index.QueryEngine{}
-	server.RepoPath = "/tmp/test"
+		// Change to temp directory
+		originalDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Failed to get current directory: %v", err)
+		}
+		defer func() {
+			if err = os.Chdir(originalDir); err != nil {
+				t.Fatalf("Failed to change back to original directory: %v", err)
+			}
+		}()
 
-	// Test parsing of optional parameters
-	request := createMockCallToolRequest("list_functions", map[string]any{
-		"max_tokens":         1000,
-		"include_signatures": true,
+		if err = os.Chdir(tempDir); err != nil {
+			t.Fatalf("Failed to change to temp directory: %v", err)
+		}
+
+		// Create a simple mock request without path parameter
+		request := mcp.CallToolRequest{}
+
+		buildResult, err := server.HandleBuildIndex(context.Background(), request)
+
+		// Verify success
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if buildResult == nil {
+			t.Fatal("Expected result, got nil")
+		}
+		if buildResult.IsError {
+			t.Errorf("Expected success result, got error: %v", buildResult.Content)
+		}
+
+		// Verify index files were created
+		indexPath := filepath.Join(tempDir, ".repocontext", "index.db")
+		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+			t.Error("Expected index.db to be created")
+		}
 	})
 
-	// Since we don't have a working index, this will fail at repository validation
-	// But we can verify the handler structure accepts the parameters without panicking
-	result, err := server.HandleListFunctions(context.Background(), request)
-
-	if err != nil {
-		t.Fatalf("Handler returned unexpected error: %v", err)
-	}
-
-	// Should get repository validation error
-	if result == nil || !result.IsError {
-		t.Error("Expected error result for repository validation")
-	}
-}
-
-// testHandlerDefaultParameters is a helper function to test default parameter handling for list tools
-func testHandlerDefaultParameters(
-	t *testing.T,
-	toolName string,
-	handlerFunc func(*RepoContextMCPServer, context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error),
-) {
-	server := NewRepoContextMCPServer()
-	server.QueryEngine = &index.QueryEngine{}
-	server.RepoPath = "/tmp/test"
-
-	// Test with no parameters (should use defaults)
-	request := createMockCallToolRequest(toolName, map[string]any{})
-
-	result, err := handlerFunc(server, context.Background(), request)
-
-	if err != nil {
-		t.Fatalf("Handler returned unexpected error: %v", err)
-	}
-
-	// Should get repository validation error (which means parameter parsing worked)
-	if result == nil || !result.IsError {
-		t.Error("Expected error result for repository validation")
-	}
-
-	// Verify error message contains repository validation
-	if len(result.Content) > 0 {
-		textContent, ok := result.Content[0].(mcp.TextContent)
-		if ok && textContent.Text != "" {
-			if !strings.Contains(textContent.Text, "Repository validation failed") {
-				t.Errorf("Expected 'Repository validation failed' error, got: %s", textContent.Text)
-			}
+	t.Run("successful index build with custom path", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "build_custom_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
 		}
-	}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository first
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Create a simple Go file for testing
+		goFile := filepath.Join(tempDir, "service.go")
+		goContent := `package main
+
+type Service struct {
+	name string
 }
 
-func TestHandleListFunctions_DefaultParameters(t *testing.T) {
-	testHandlerDefaultParameters(
-		t,
-		"list_functions",
-		func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return server.HandleListFunctions(ctx, request)
-		},
-	)
+func (s *Service) GetName() string {
+	return s.name
 }
 
-func TestHandleListFunctions_ResponseFormat(t *testing.T) {
-	// This test verifies the response format structure
-	// Since we can't easily mock the full query engine, we test that the handler
-	// follows the expected response format pattern
-	server := NewRepoContextMCPServer()
-
-	// Test that formatSuccessResponse works with sample function list data
-	sampleData := map[string]interface{}{
-		"query":       "function",
-		"search_type": "type",
-		"entries": []map[string]interface{}{
-			{
-				"index_entry": map[string]interface{}{
-					"name":      "testFunction",
-					"type":      "function",
-					"file":      "test.go",
-					"signature": "func testFunction() error",
-				},
-			},
-		},
-		"token_count": 150,
-		"executed_at": "2024-01-01T00:00:00Z",
-	}
-
-	result := server.FormatSuccessResponse(sampleData)
-	if result == nil {
-		t.Fatal("FormatSuccessResponse should not return nil")
-	}
-
-	if result.IsError {
-		t.Error("FormatSuccessResponse should not return error result for valid data")
-	}
-
-	// Verify content is present
-	if len(result.Content) == 0 {
-		t.Error("Expected response content to be present")
-	}
+func NewService(name string) *Service {
+	return &Service{name: name}
 }
+`
+		err = os.WriteFile(goFile, []byte(goContent), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file: %v", err)
+		}
 
-func TestHandleListTypes_Validation(t *testing.T) {
-	testHandlerValidation(
-		t,
-		"list_types",
-		map[string]any{},
-		func(
-			server *RepoContextMCPServer, request mcp.CallToolRequest,
-		) (*mcp.CallToolResult, error) {
-			return server.HandleListTypes(context.Background(), request)
-		},
-	)
-}
+		// Test parameter parsing logic
+		params := &BuildIndexParams{
+			Path:    tempDir,
+			Verbose: true,
+		}
 
-func TestHandleListTypes_ParameterParsing(t *testing.T) {
-	server := NewRepoContextMCPServer()
-	server.QueryEngine = &index.QueryEngine{}
-	server.RepoPath = "/tmp/test"
+		if params.Path != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, params.Path)
+		}
+		if !params.Verbose {
+			t.Error("Expected verbose to be true")
+		}
 
-	// Test parsing of optional parameters
-	request := createMockCallToolRequest("list_types", map[string]any{
-		"max_tokens":         1000,
-		"include_signatures": true,
-		"limit":              10,
-		"offset":             5,
+		// Test path determination
+		determinedPath, err := server.determineBuildPath(params.Path)
+		if err != nil {
+			t.Fatalf("Failed to determine path: %v", err)
+		}
+
+		// Test repository validation
+		err = server.validateRepositoryForBuild(determinedPath)
+		if err != nil {
+			t.Fatalf("Repository validation failed: %v", err)
+		}
+
+		// Test index building
+		result, err := server.buildRepositoryIndex(determinedPath, params.Verbose)
+		if err != nil {
+			t.Fatalf("Index build failed: %v", err)
+		}
+
+		if result.FilesProcessed == 0 {
+			t.Error("Expected files to be processed")
+		}
+		if result.Success != true {
+			t.Error("Expected successful build")
+		}
 	})
 
-	// Since we don't have a working index, this will fail at repository validation
-	// But we can verify the handler structure accepts the parameters without panicking
-	result, err := server.HandleListTypes(context.Background(), request)
+	t.Run("build index on uninitialized repository", func(t *testing.T) {
+		// Create a temporary directory without initializing
+		tempDir, err := os.MkdirTemp("", "build_uninit_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
 
-	if err != nil {
-		t.Fatalf("Handler returned unexpected error: %v", err)
-	}
+		server := NewRepoContextMCPServer()
 
-	// Should get repository validation error
-	if result == nil || !result.IsError {
-		t.Error("Expected error result for repository validation")
-	}
+		// Test repository validation on uninitialized repository
+		err = server.validateRepositoryForBuild(tempDir)
+		if err == nil {
+			t.Error("Expected error for uninitialized repository")
+		}
+		if !strings.Contains(err.Error(), "not initialized") {
+			t.Errorf("Expected 'not initialized' error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid path validation", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test with non-existent path
+		err := server.validateRepositoryForBuild("/nonexistent/invalid/path")
+		if err == nil {
+			t.Error("Expected error for non-existent path")
+		}
+
+		// Test with file instead of directory
+		tempFile, err := os.CreateTemp("", "not_a_dir")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		tempFile.Close()
+
+		err = server.validateRepositoryForBuild(tempFile.Name())
+		if err == nil {
+			t.Error("Expected error for file path instead of directory")
+		}
+	})
+
+	t.Run("path determination logic", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test empty path (should use current directory)
+		path, err := server.determineBuildPath("")
+		if err != nil {
+			t.Errorf("Failed to determine path for empty string: %v", err)
+		}
+		if path == "" {
+			t.Error("Expected non-empty path for empty input")
+		}
+
+		// Test custom path
+		customPath := "/tmp/custom"
+		path, err = server.determineBuildPath(customPath)
+		if err != nil {
+			t.Errorf("Failed to determine path for custom path: %v", err)
+		}
+		if !filepath.IsAbs(path) {
+			t.Error("Expected absolute path to be returned")
+		}
+	})
+
+	t.Run("verbose mode statistics", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "build_verbose_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Create multiple test files
+		goFile1 := filepath.Join(tempDir, "file1.go")
+		goContent1 := `package main
+
+func function1() {
+	// Function 1
 }
 
-func TestHandleListTypes_DefaultParameters(t *testing.T) {
-	testHandlerDefaultParameters(
-		t,
-		"list_types",
-		func(server *RepoContextMCPServer, ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return server.HandleListTypes(ctx, request)
-		},
-	)
+type Type1 struct {
+	Field1 string
+}
+`
+		err = os.WriteFile(goFile1, []byte(goContent1), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 1: %v", err)
+		}
+
+		goFile2 := filepath.Join(tempDir, "file2.go")
+		goContent2 := `package main
+
+func function2() {
+	// Function 2
 }
 
-func TestHandleListTypes_ResponseFormat(t *testing.T) {
-	// This test verifies the response format structure
-	// Since we can't easily mock the full query engine, we test that the handler
-	// follows the expected response format pattern
-	server := NewRepoContextMCPServer()
+const Constant1 = "value"
+var Variable1 string
+`
+		err = os.WriteFile(goFile2, []byte(goContent2), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 2: %v", err)
+		}
 
-	// Test that formatSuccessResponse works with sample type list data
-	sampleData := map[string]interface{}{
-		"query":       "type",
-		"search_type": "type",
-		"entries": []map[string]interface{}{
-			{
-				"index_entry": map[string]interface{}{
-					"name":      "User",
-					"type":      "type",
-					"file":      "models.go",
-					"signature": "type User struct",
-				},
-			},
-			{
-				"index_entry": map[string]interface{}{
-					"name":      "ErrorCode",
-					"type":      "type",
-					"file":      "errors.go",
-					"signature": "type ErrorCode int",
-				},
-			},
-		},
-		"token_count": 200,
-		"executed_at": "2024-01-01T00:00:00Z",
-	}
+		// Test index building with verbose mode
+		result, err := server.buildRepositoryIndex(tempDir, true)
+		if err != nil {
+			t.Fatalf("Index build failed: %v", err)
+		}
 
-	result := server.FormatSuccessResponse(sampleData)
-	if result == nil {
-		t.Fatal("FormatSuccessResponse should not return nil")
-	}
+		// Verify verbose statistics
+		if result.FilesProcessed < 2 {
+			t.Errorf("Expected at least 2 files processed, got %d", result.FilesProcessed)
+		}
+		if result.FunctionsIndexed < 2 {
+			t.Errorf("Expected at least 2 functions indexed, got %d", result.FunctionsIndexed)
+		}
+		if result.TypesIndexed < 1 {
+			t.Errorf("Expected at least 1 type indexed, got %d", result.TypesIndexed)
+		}
+		if result.Duration.Seconds() <= 0 {
+			t.Error("Expected positive build duration")
+		}
+	})
+}
 
-	if result.IsError {
-		t.Error("FormatSuccessResponse should not return error result for valid data")
-	}
+// TestGetRepositoryStatus tests the get_repository_status tool functionality
+func TestGetRepositoryStatus(t *testing.T) {
+	t.Run("successful status check with initialized and indexed repository", func(t *testing.T) {
+		// Create a temporary directory to simulate repository
+		tempDir, err := os.MkdirTemp("", "status_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
 
-	// Verify content is present
-	if len(result.Content) == 0 {
-		t.Error("Expected response content to be present")
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository first
+		initResult, err := server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+		if initResult.AlreadyInitialized {
+			t.Fatal("Expected new initialization")
+		}
+
+		// Create test files for indexing
+		goFile := filepath.Join(tempDir, "main.go")
+		goContent := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, World!")
+}
+
+func helper() string {
+	return "helper"
+}
+
+type Service struct {
+	name string
+}
+
+const AppName = "test"
+var GlobalVar = "global"
+`
+		err = os.WriteFile(goFile, []byte(goContent), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file: %v", err)
+		}
+
+		// Build index
+		buildResult, err := server.buildRepositoryIndex(tempDir, false)
+		if err != nil {
+			t.Fatalf("Failed to build index: %v", err)
+		}
+		if !buildResult.Success {
+			t.Fatal("Expected successful index build")
+		}
+
+		// Test parameter parsing
+		params := server.parseGetRepositoryStatusParameters(mcp.CallToolRequest{})
+		if params.Path != "" {
+			t.Errorf("Expected empty path for default, got: %s", params.Path)
+		}
+
+		// Test path determination
+		determinedPath, err := server.determineStatusPath(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to determine path: %v", err)
+		}
+		if determinedPath != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, determinedPath)
+		}
+
+		// Test repository status collection
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify status information
+		if status.Path != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, status.Path)
+		}
+		if !status.IsInitialized {
+			t.Error("Expected repository to be initialized")
+		}
+		if !status.IsIndexed {
+			t.Error("Expected repository to be indexed")
+		}
+		if status.Statistics.FilesProcessed != buildResult.FilesProcessed {
+			t.Errorf("Expected %d files processed, got %d", buildResult.FilesProcessed, status.Statistics.FilesProcessed)
+		}
+		if status.Statistics.FunctionsIndexed != buildResult.FunctionsIndexed {
+			t.Errorf("Expected %d functions indexed, got %d", buildResult.FunctionsIndexed, status.Statistics.FunctionsIndexed)
+		}
+		if status.Statistics.TypesIndexed != buildResult.TypesIndexed {
+			t.Errorf("Expected %d types indexed, got %d", buildResult.TypesIndexed, status.Statistics.TypesIndexed)
+		}
+	})
+
+	t.Run("status check with initialized but not indexed repository", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "status_uninit_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository only (don't build index)
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Collect status
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify status information
+		if !status.IsInitialized {
+			t.Error("Expected repository to be initialized")
+		}
+		if status.IsIndexed {
+			t.Error("Expected repository to not be indexed")
+		}
+		if status.Statistics.IndexSize > 0 {
+			t.Error("Expected zero index size for unindexed repository")
+		}
+	})
+
+	t.Run("status check with uninitialized repository", func(t *testing.T) {
+		// Create a temporary directory without initializing
+		tempDir, err := os.MkdirTemp("", "status_uninit_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Collect status for uninitialized repository
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify status information
+		if status.IsInitialized {
+			t.Error("Expected repository to not be initialized")
+		}
+		if status.IsIndexed {
+			t.Error("Expected repository to not be indexed")
+		}
+		if status.Message == "" {
+			t.Error("Expected status message for uninitialized repository")
+		}
+	})
+
+	t.Run("invalid path validation", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test with non-existent path
+		_, err := server.collectRepositoryStatus("/nonexistent/invalid/path")
+		if err == nil {
+			t.Error("Expected error for non-existent path")
+		}
+
+		// Test with file instead of directory
+		tempFile, err := os.CreateTemp("", "not_a_dir")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		tempFile.Close()
+
+		_, err = server.collectRepositoryStatus(tempFile.Name())
+		if err == nil {
+			t.Error("Expected error for file path instead of directory")
+		}
+	})
+
+	t.Run("path determination logic", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test empty path (should use current directory)
+		path, err := server.determineStatusPath("")
+		if err != nil {
+			t.Errorf("Failed to determine path for empty string: %v", err)
+		}
+		if path == "" {
+			t.Error("Expected non-empty path for empty input")
+		}
+
+		// Test custom path
+		customPath := "/tmp/custom"
+		path, err = server.determineStatusPath(customPath)
+		if err != nil {
+			t.Errorf("Failed to determine path for custom path: %v", err)
+		}
+		if !filepath.IsAbs(path) {
+			t.Error("Expected absolute path to be returned")
+		}
+	})
+
+	t.Run("repository status with detailed statistics", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "status_detailed_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Create multiple test files with varied content
+		goFile1 := filepath.Join(tempDir, "service.go")
+		goContent1 := `package main
+
+type UserService struct {
+	users []User
+}
+
+func (s *UserService) GetUser(id int) *User {
+	for _, user := range s.users {
+		if user.ID == id {
+			return &user
+		}
 	}
+	return nil
+}
+
+func (s *UserService) AddUser(user User) {
+	s.users = append(s.users, user)
+}
+
+type User struct {
+	ID   int
+	Name string
+}
+
+const MaxUsers = 1000
+var DefaultUser = User{ID: 1, Name: "Default"}
+`
+		err = os.WriteFile(goFile1, []byte(goContent1), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 1: %v", err)
+		}
+
+		goFile2 := filepath.Join(tempDir, "utils.go")
+		goContent2 := `package main
+
+func FormatName(name string) string {
+	return strings.Title(name)
+}
+
+func ValidateEmail(email string) bool {
+	return strings.Contains(email, "@")
+}
+
+type Config struct {
+	Port int
+	Host string
+}
+
+const Version = "1.0.0"
+var Config GlobalConfig = Config{Port: 8080, Host: "localhost"}
+`
+		err = os.WriteFile(goFile2, []byte(goContent2), ConstFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 2: %v", err)
+		}
+
+		// Build index
+		buildResult, err := server.buildRepositoryIndex(tempDir, true)
+		if err != nil {
+			t.Fatalf("Failed to build index: %v", err)
+		}
+
+		// Collect detailed status
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify detailed statistics
+		if status.Statistics.FilesProcessed < 2 {
+			t.Errorf("Expected at least 2 files processed, got %d", status.Statistics.FilesProcessed)
+		}
+		if status.Statistics.FunctionsIndexed < 4 {
+			t.Errorf("Expected at least 4 functions indexed, got %d", status.Statistics.FunctionsIndexed)
+		}
+		if status.Statistics.TypesIndexed < 3 {
+			t.Errorf("Expected at least 3 types indexed, got %d", status.Statistics.TypesIndexed)
+		}
+		if status.Statistics.LastBuildDuration.Seconds() <= 0 {
+			t.Error("Expected positive last build duration")
+		}
+		if status.Statistics.IndexSize <= 0 {
+			t.Error("Expected positive index size")
+		}
+
+		// Verify that build result matches status statistics
+		if status.Statistics.FilesProcessed != buildResult.FilesProcessed {
+			t.Errorf("Status files processed (%d) doesn't match build result (%d)",
+				status.Statistics.FilesProcessed, buildResult.FilesProcessed)
+		}
+	})
 }
