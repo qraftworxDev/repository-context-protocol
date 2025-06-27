@@ -702,3 +702,320 @@ var Variable1 string
 		}
 	})
 }
+
+// TestGetRepositoryStatus tests the get_repository_status tool functionality
+func TestGetRepositoryStatus(t *testing.T) {
+	t.Run("successful status check with initialized and indexed repository", func(t *testing.T) {
+		// Create a temporary directory to simulate repository
+		tempDir, err := os.MkdirTemp("", "status_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository first
+		initResult, err := server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+		if initResult.AlreadyInitialized {
+			t.Fatal("Expected new initialization")
+		}
+
+		// Create test files for indexing
+		goFile := filepath.Join(tempDir, "main.go")
+		goContent := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, World!")
+}
+
+func helper() string {
+	return "helper"
+}
+
+type Service struct {
+	name string
+}
+
+const AppName = "test"
+var GlobalVar = "global"
+`
+		err = os.WriteFile(goFile, []byte(goContent), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file: %v", err)
+		}
+
+		// Build index
+		buildResult, err := server.buildRepositoryIndex(tempDir, false)
+		if err != nil {
+			t.Fatalf("Failed to build index: %v", err)
+		}
+		if !buildResult.Success {
+			t.Fatal("Expected successful index build")
+		}
+
+		// Test parameter parsing
+		params := server.parseGetRepositoryStatusParameters(mcp.CallToolRequest{})
+		if params.Path != "" {
+			t.Errorf("Expected empty path for default, got: %s", params.Path)
+		}
+
+		// Test path determination
+		determinedPath, err := server.determineStatusPath(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to determine path: %v", err)
+		}
+		if determinedPath != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, determinedPath)
+		}
+
+		// Test repository status collection
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify status information
+		if status.Path != tempDir {
+			t.Errorf("Expected path %s, got %s", tempDir, status.Path)
+		}
+		if !status.IsInitialized {
+			t.Error("Expected repository to be initialized")
+		}
+		if !status.IsIndexed {
+			t.Error("Expected repository to be indexed")
+		}
+		if status.Statistics.FilesProcessed != buildResult.FilesProcessed {
+			t.Errorf("Expected %d files processed, got %d", buildResult.FilesProcessed, status.Statistics.FilesProcessed)
+		}
+		if status.Statistics.FunctionsIndexed != buildResult.FunctionsIndexed {
+			t.Errorf("Expected %d functions indexed, got %d", buildResult.FunctionsIndexed, status.Statistics.FunctionsIndexed)
+		}
+		if status.Statistics.TypesIndexed != buildResult.TypesIndexed {
+			t.Errorf("Expected %d types indexed, got %d", buildResult.TypesIndexed, status.Statistics.TypesIndexed)
+		}
+	})
+
+	t.Run("status check with initialized but not indexed repository", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "status_uninit_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository only (don't build index)
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Collect status
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify status information
+		if !status.IsInitialized {
+			t.Error("Expected repository to be initialized")
+		}
+		if status.IsIndexed {
+			t.Error("Expected repository to not be indexed")
+		}
+		if status.Statistics.IndexSize > 0 {
+			t.Error("Expected zero index size for unindexed repository")
+		}
+	})
+
+	t.Run("status check with uninitialized repository", func(t *testing.T) {
+		// Create a temporary directory without initializing
+		tempDir, err := os.MkdirTemp("", "status_uninit_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Collect status for uninitialized repository
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify status information
+		if status.IsInitialized {
+			t.Error("Expected repository to not be initialized")
+		}
+		if status.IsIndexed {
+			t.Error("Expected repository to not be indexed")
+		}
+		if status.Message == "" {
+			t.Error("Expected status message for uninitialized repository")
+		}
+	})
+
+	t.Run("invalid path validation", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test with non-existent path
+		_, err := server.collectRepositoryStatus("/nonexistent/invalid/path")
+		if err == nil {
+			t.Error("Expected error for non-existent path")
+		}
+
+		// Test with file instead of directory
+		tempFile, err := os.CreateTemp("", "not_a_dir")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		tempFile.Close()
+
+		_, err = server.collectRepositoryStatus(tempFile.Name())
+		if err == nil {
+			t.Error("Expected error for file path instead of directory")
+		}
+	})
+
+	t.Run("path determination logic", func(t *testing.T) {
+		server := NewRepoContextMCPServer()
+
+		// Test empty path (should use current directory)
+		path, err := server.determineStatusPath("")
+		if err != nil {
+			t.Errorf("Failed to determine path for empty string: %v", err)
+		}
+		if path == "" {
+			t.Error("Expected non-empty path for empty input")
+		}
+
+		// Test custom path
+		customPath := "/tmp/custom"
+		path, err = server.determineStatusPath(customPath)
+		if err != nil {
+			t.Errorf("Failed to determine path for custom path: %v", err)
+		}
+		if !filepath.IsAbs(path) {
+			t.Error("Expected absolute path to be returned")
+		}
+	})
+
+	t.Run("repository status with detailed statistics", func(t *testing.T) {
+		// Create a temporary directory
+		tempDir, err := os.MkdirTemp("", "status_detailed_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		server := NewRepoContextMCPServer()
+
+		// Initialize repository
+		_, err = server.initializeRepositoryStructure(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to initialize repository: %v", err)
+		}
+
+		// Create multiple test files with varied content
+		goFile1 := filepath.Join(tempDir, "service.go")
+		goContent1 := `package main
+
+type UserService struct {
+	users []User
+}
+
+func (s *UserService) GetUser(id int) *User {
+	for _, user := range s.users {
+		if user.ID == id {
+			return &user
+		}
+	}
+	return nil
+}
+
+func (s *UserService) AddUser(user User) {
+	s.users = append(s.users, user)
+}
+
+type User struct {
+	ID   int
+	Name string
+}
+
+const MaxUsers = 1000
+var DefaultUser = User{ID: 1, Name: "Default"}
+`
+		err = os.WriteFile(goFile1, []byte(goContent1), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 1: %v", err)
+		}
+
+		goFile2 := filepath.Join(tempDir, "utils.go")
+		goContent2 := `package main
+
+func FormatName(name string) string {
+	return strings.Title(name)
+}
+
+func ValidateEmail(email string) bool {
+	return strings.Contains(email, "@")
+}
+
+type Config struct {
+	Port int
+	Host string
+}
+
+const Version = "1.0.0"
+var Config GlobalConfig = Config{Port: 8080, Host: "localhost"}
+`
+		err = os.WriteFile(goFile2, []byte(goContent2), constFilePermission600)
+		if err != nil {
+			t.Fatalf("Failed to create test Go file 2: %v", err)
+		}
+
+		// Build index
+		buildResult, err := server.buildRepositoryIndex(tempDir, true)
+		if err != nil {
+			t.Fatalf("Failed to build index: %v", err)
+		}
+
+		// Collect detailed status
+		status, err := server.collectRepositoryStatus(tempDir)
+		if err != nil {
+			t.Fatalf("Failed to collect repository status: %v", err)
+		}
+
+		// Verify detailed statistics
+		if status.Statistics.FilesProcessed < 2 {
+			t.Errorf("Expected at least 2 files processed, got %d", status.Statistics.FilesProcessed)
+		}
+		if status.Statistics.FunctionsIndexed < 4 {
+			t.Errorf("Expected at least 4 functions indexed, got %d", status.Statistics.FunctionsIndexed)
+		}
+		if status.Statistics.TypesIndexed < 3 {
+			t.Errorf("Expected at least 3 types indexed, got %d", status.Statistics.TypesIndexed)
+		}
+		if status.Statistics.LastBuildDuration.Seconds() <= 0 {
+			t.Error("Expected positive last build duration")
+		}
+		if status.Statistics.IndexSize <= 0 {
+			t.Error("Expected positive index size")
+		}
+
+		// Verify that build result matches status statistics
+		if status.Statistics.FilesProcessed != buildResult.FilesProcessed {
+			t.Errorf("Status files processed (%d) doesn't match build result (%d)",
+				status.Statistics.FilesProcessed, buildResult.FilesProcessed)
+		}
+	})
+}

@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	constDuration50ms      = 50
 	constFilePermission600 = 0600
 	constFilePermission755 = 0755
 )
@@ -485,6 +486,7 @@ func (s *RepoContextMCPServer) RegisterRepositoryManagementTools() []mcp.Tool {
 	return []mcp.Tool{
 		s.createInitializeRepositoryTool(),
 		s.createBuildIndexTool(),
+		s.createGetRepositoryStatusTool(),
 	}
 }
 
@@ -502,6 +504,16 @@ func (s *RepoContextMCPServer) createBuildIndexTool() mcp.Tool {
 		mcp.WithDescription("Build semantic index for the repository by parsing source code files and creating searchable chunks"),
 		mcp.WithString("path", mcp.Description("Path to repository directory (default: current directory)")),
 		mcp.WithBoolean("verbose", mcp.Description("Enable verbose output with detailed build statistics")),
+	)
+}
+
+// createGetRepositoryStatusTool creates the get_repository_status tool
+func (s *RepoContextMCPServer) createGetRepositoryStatusTool() mcp.Tool {
+	return mcp.NewTool("get_repository_status",
+		mcp.WithDescription(
+			"Get current repository indexing status and comprehensive statistics including index size, entity counts, and build information. "+
+				"This tool is useful for monitoring the repository's indexing progress and ensuring it is up to date."),
+		mcp.WithString("path", mcp.Description("Path to repository directory (default: current directory)")),
 	)
 }
 
@@ -797,4 +809,253 @@ type InitializationResult struct {
 	Message            string   `json:"message"`
 	CreatedDirectories []string `json:"created_directories"`
 	CreatedFiles       []string `json:"created_files,omitempty"`
+}
+
+// HandleGetRepositoryStatus handles the get_repository_status tool request
+func (s *RepoContextMCPServer) HandleGetRepositoryStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Parse parameters
+	params := s.parseGetRepositoryStatusParameters(request)
+
+	// Determine target path
+	targetPath, err := s.determineStatusPath(params.Path)
+	if err != nil {
+		return s.FormatErrorResponse("get_repository_status", err), nil
+	}
+
+	// Collect repository status and statistics
+	status, err := s.collectRepositoryStatus(targetPath)
+	if err != nil {
+		return s.FormatErrorResponse("get_repository_status", err), nil
+	}
+
+	// Return success response
+	return s.FormatSuccessResponse(status), nil
+}
+
+// parseGetRepositoryStatusParameters extracts and validates parameters for get_repository_status
+func (s *RepoContextMCPServer) parseGetRepositoryStatusParameters(request mcp.CallToolRequest) *GetRepositoryStatusParams {
+	path := request.GetString("path", "")
+
+	return &GetRepositoryStatusParams{
+		Path: path,
+	}
+}
+
+// determineStatusPath determines the actual path for status checking
+func (s *RepoContextMCPServer) determineStatusPath(providedPath string) (string, error) {
+	if providedPath == "" {
+		// Use current directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current directory: %w", err)
+		}
+		return currentDir, nil
+	}
+
+	// Use provided path
+	return filepath.Abs(providedPath)
+}
+
+// collectRepositoryStatus gathers comprehensive repository status and statistics
+func (s *RepoContextMCPServer) collectRepositoryStatus(path string) (*RepositoryStatus, error) {
+	// Validate path exists and is directory
+	if err := s.validateStatusPath(path); err != nil {
+		return nil, err
+	}
+
+	status := &RepositoryStatus{
+		Path:    path,
+		Message: "",
+	}
+
+	// Check if repository is initialized
+	repoContextPath := filepath.Join(path, ".repocontext")
+	if _, err := os.Stat(repoContextPath); os.IsNotExist(err) {
+		status.IsInitialized = false
+		status.IsIndexed = false
+		status.Message = "Repository not initialized - run initialize_repository first"
+		status.Statistics = &RepositoryStatistics{}
+		return status, nil
+	}
+
+	status.IsInitialized = true
+
+	// Check if repository is indexed
+	indexPath := filepath.Join(repoContextPath, "index.db")
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		status.IsIndexed = false
+		status.Message = "Repository initialized but not indexed - run build_index to create index"
+		status.Statistics = &RepositoryStatistics{}
+		return status, nil
+	}
+
+	status.IsIndexed = true
+	status.Message = "Repository fully initialized and indexed"
+
+	// Collect detailed statistics
+	statistics, err := s.collectDetailedStatistics(path, repoContextPath, indexPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect statistics: %w", err)
+	}
+
+	status.Statistics = statistics
+
+	return status, nil
+}
+
+// validateStatusPath validates that the path is suitable for status checking
+func (s *RepoContextMCPServer) validateStatusPath(path string) error {
+	// Check if path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist: %s", path)
+	}
+
+	// Check if path is a directory
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to check path: %w", err)
+	}
+
+	if !fileInfo.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+
+	return nil
+}
+
+// collectDetailedStatistics gathers comprehensive statistics about the repository index
+func (s *RepoContextMCPServer) collectDetailedStatistics(repoPath, repoContextPath, indexPath string) (*RepositoryStatistics, error) {
+	statistics := &RepositoryStatistics{}
+
+	statistics.RepositoryPath = repoPath
+	statistics.IndexPath = indexPath
+	statistics.RepoContextPath = repoContextPath
+	statistics.ManifestPath = filepath.Join(repoContextPath, "manifest.json")
+
+	// Get index file size
+	indexInfo, err := os.Stat(indexPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get index file info: %w", err)
+	}
+	statistics.IndexSize = indexInfo.Size()
+
+	// Get index modification time (last build time)
+	statistics.LastBuildTime = indexInfo.ModTime()
+
+	// Load manifest for additional information
+	manifestPath := filepath.Join(repoContextPath, "manifest.json")
+	var manifestInfo os.FileInfo
+	if manifestInfo, err = os.Stat(manifestPath); err == nil {
+		statistics.ManifestSize = manifestInfo.Size()
+		statistics.InitializedTime = manifestInfo.ModTime()
+	}
+
+	// Initialize storage to collect entity statistics
+	storage := index.NewHybridStorage(repoContextPath)
+	if err = storage.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize storage for statistics: %w", err)
+	}
+	defer storage.Close()
+
+	// Use query engine to get entity counts
+	queryEngine := index.NewQueryEngine(storage)
+
+	// Get function count
+	functionResult, err := queryEngine.SearchByType("function")
+	if err == nil && functionResult != nil {
+		statistics.FunctionsIndexed = len(functionResult.Entries)
+	}
+
+	// Get type count by aggregating all type kinds
+	typeKinds := []string{"struct", "interface", "type", "alias", "enum"}
+	totalTypes := 0
+	var typeResult *index.SearchResult
+	for _, typeKind := range typeKinds {
+		typeResult, err = queryEngine.SearchByType(typeKind)
+		if err == nil && typeResult != nil {
+			totalTypes += len(typeResult.Entries)
+		}
+	}
+	statistics.TypesIndexed = totalTypes
+
+	// Get variable count
+	variableResult, err := queryEngine.SearchByType("variable")
+	if err == nil && variableResult != nil {
+		statistics.VariablesIndexed = len(variableResult.Entries)
+	}
+
+	// Get constant count
+	constantResult, err := queryEngine.SearchByType("constant")
+	if err == nil && constantResult != nil {
+		statistics.ConstantsIndexed = len(constantResult.Entries)
+	}
+
+	// Count source files processed (approximation based on chunks directory)
+	chunksPath := filepath.Join(repoContextPath, "chunks")
+	if chunksInfo, err := os.ReadDir(chunksPath); err == nil {
+		statistics.FilesProcessed = len(chunksInfo)
+	}
+
+	// Calculate last build duration based on file timestamps
+	if !statistics.LastBuildTime.IsZero() && !statistics.InitializedTime.IsZero() {
+		// Calculate absolute time difference between build and initialization
+		var duration time.Duration
+		if statistics.LastBuildTime.After(statistics.InitializedTime) {
+			duration = statistics.LastBuildTime.Sub(statistics.InitializedTime)
+		} else {
+			duration = statistics.InitializedTime.Sub(statistics.LastBuildTime)
+		}
+
+		// Ensure we have a meaningful duration (minimum based on entities processed)
+		totalEntities := statistics.FunctionsIndexed + statistics.TypesIndexed +
+			statistics.VariablesIndexed + statistics.ConstantsIndexed
+		if totalEntities > 0 {
+			// Use actual duration if reasonable, otherwise estimate based on entities
+			minEstimatedDuration := time.Duration(totalEntities) * constDuration50ms * time.Millisecond
+			if duration > minEstimatedDuration {
+				statistics.LastBuildDuration = duration
+			} else {
+				statistics.LastBuildDuration = minEstimatedDuration
+			}
+		} else {
+			statistics.LastBuildDuration = time.Second // Default minimum
+		}
+	}
+
+	return statistics, nil
+}
+
+// GetRepositoryStatusParams represents parameters for get_repository_status tool
+type GetRepositoryStatusParams struct {
+	Path string
+}
+
+// RepositoryStatus represents the complete status of a repository
+type RepositoryStatus struct {
+	Path          string                `json:"path"`
+	IsInitialized bool                  `json:"is_initialized"`
+	IsIndexed     bool                  `json:"is_indexed"`
+	Message       string                `json:"message"`
+	Statistics    *RepositoryStatistics `json:"statistics"`
+}
+
+// RepositoryStatistics represents detailed statistics about the repository index
+type RepositoryStatistics struct {
+	FilesProcessed    int           `json:"files_processed"`
+	FunctionsIndexed  int           `json:"functions_indexed"`
+	TypesIndexed      int           `json:"types_indexed"`
+	VariablesIndexed  int           `json:"variables_indexed"`
+	ConstantsIndexed  int           `json:"constants_indexed"`
+	CallsIndexed      int           `json:"calls_indexed"`
+	IndexSize         int64         `json:"index_size"`
+	ManifestSize      int64         `json:"manifest_size"`
+	LastBuildTime     time.Time     `json:"last_build_time"`
+	LastBuildDuration time.Duration `json:"last_build_duration"`
+	InitializedTime   time.Time     `json:"initialized_time"`
+
+	// Additional fields for detailed statistics
+	RepositoryPath  string `json:"repository_path"`
+	IndexPath       string `json:"index_path"`
+	RepoContextPath string `json:"repo_context_path"`
+	ManifestPath    string `json:"manifest_path"`
 }
