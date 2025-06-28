@@ -617,7 +617,7 @@ func (s *RepoContextMCPServer) extractTypeReferences(entries []index.SearchResul
 
 	for _, entry := range entries {
 		entryType := entry.IndexEntry.Type
-		if entryType == index.EntityKindStruct || entryType == index.EntityKindInterface || entryType == index.EntityKindType {
+		if entryType == index.EntityTypeType {
 			typeRefs = append(typeRefs, TypeReference{
 				Name: entry.IndexEntry.Name,
 				File: entry.IndexEntry.File,
@@ -654,8 +654,7 @@ func (s *RepoContextMCPServer) buildTypeContextResult(params *GetTypeContextPara
 	for i := range searchResult.Entries {
 		entry := &searchResult.Entries[i]
 		entryType := entry.IndexEntry.Type
-		if (entryType == index.EntityKindStruct || entryType == index.EntityKindInterface || entryType == index.EntityKindType) &&
-			entry.IndexEntry.Name == params.TypeName {
+		if entryType == index.EntityTypeType && entry.IndexEntry.Name == params.TypeName {
 			typeEntry = entry
 			break
 		}
@@ -699,32 +698,42 @@ func (s *RepoContextMCPServer) buildTypeContextResult(params *GetTypeContextPara
 func (s *RepoContextMCPServer) extractFieldReferences(entry *index.SearchResultEntry) []FieldReference {
 	var fields []FieldReference
 
-	if entry.ChunkData.FileData != nil {
+	if entry.ChunkData != nil && entry.ChunkData.FileData != nil {
 		for i := range entry.ChunkData.FileData {
-			line := &entry.ChunkData.FileData[i]
-			for j := range line.Types {
-				// Extract fields from type signature - simplified implementation
-				fieldName := fmt.Sprintf("Field%d", j+1)
-				fieldType := "string" // Default type - would need more sophisticated parsing
+			fileData := &entry.ChunkData.FileData[i]
 
-				fields = append(fields, FieldReference{
-					Name: fieldName,
-					Type: fieldType,
-					File: entry.IndexEntry.File,
-					Line: entry.IndexEntry.StartLine + j + 1,
-				})
+			// Find the matching type definition in the file data
+			for j := range fileData.Types {
+				typeDef := &fileData.Types[j]
+
+				// Check if this is the type we're looking for
+				if typeDef.Name == entry.IndexEntry.Name {
+					// Extract actual fields from the parsed type definition
+					for k := range typeDef.Fields {
+						field := &typeDef.Fields[k]
+
+						fields = append(fields, FieldReference{
+							Name: field.Name,
+							Type: field.Type,
+							File: entry.IndexEntry.File,
+							Line: entry.IndexEntry.StartLine + k + 1, // Approximate line number
+						})
+					}
+
+					// If we found the matching type, we're done
+					if len(fields) > 0 {
+						return fields
+					}
+				}
 			}
 		}
 	}
 
-	// If no fields extracted from chunk data, create placeholder from signature
+	// If no fields extracted from chunk data but signature indicates struct,
+	// it might be an empty struct or the parsing didn't capture fields
 	if len(fields) == 0 && strings.Contains(entry.IndexEntry.Signature, "struct") {
-		fields = append(fields, FieldReference{
-			Name: "field1",
-			Type: "interface{}",
-			File: entry.IndexEntry.File,
-			Line: entry.IndexEntry.StartLine + 1,
-		})
+		// For empty structs, return empty slice rather than placeholder
+		return fields
 	}
 
 	return fields
@@ -861,7 +870,7 @@ func (s *RepoContextMCPServer) extractExamplesFromSearchResult(
 		entry := &searchResult.Entries[i]
 
 		// Skip if this is the type definition itself
-		if entry.IndexEntry.Type == TypeType && entry.IndexEntry.Name == typeName {
+		if entry.IndexEntry.Type == index.EntityTypeType && entry.IndexEntry.Name == typeName {
 			continue
 		}
 

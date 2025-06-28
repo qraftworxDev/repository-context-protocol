@@ -3,6 +3,9 @@ package mcp
 import (
 	"strings"
 	"testing"
+
+	"repository-context-protocol/internal/index"
+	"repository-context-protocol/internal/models"
 )
 
 // TestContextTools_Registration tests tool registration
@@ -527,4 +530,204 @@ func TestTypeContextMethodsAndUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Helper functions to create test data without duplication
+
+func createTestSearchResultEntry(name, file string, startLine, endLine int, fields []models.Field) *index.SearchResultEntry {
+	return &index.SearchResultEntry{
+		IndexEntry: models.IndexEntry{
+			Name:      name,
+			Type:      index.EntityTypeType,
+			File:      file,
+			StartLine: startLine,
+			EndLine:   endLine,
+			Signature: "type " + name + " struct",
+		},
+		ChunkData: &models.SemanticChunk{
+			FileData: []models.FileContext{
+				{
+					Path: file,
+					Types: []models.TypeDef{
+						{
+							Name:      name,
+							Kind:      "struct",
+							Fields:    fields,
+							StartLine: startLine,
+							EndLine:   endLine,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func createExpectedFieldReferences(file string, startLine int, fieldData []struct{ name, fieldType string }) []FieldReference {
+	fields := make([]FieldReference, len(fieldData))
+	for i, fd := range fieldData {
+		fields[i] = FieldReference{
+			Name: fd.name,
+			Type: fd.fieldType,
+			File: file,
+			Line: startLine + i + 1,
+		}
+	}
+	return fields
+}
+
+// TestExtractFieldReferences_RealFieldExtraction tests that we extract actual field names and types
+func TestExtractFieldReferences_RealFieldExtraction(t *testing.T) {
+	// Create a mock server instance
+	server := &RepoContextMCPServer{}
+
+	tests := []struct {
+		name           string
+		entry          *index.SearchResultEntry
+		expectedFields []FieldReference
+		description    string
+	}{
+		{
+			name: "struct with actual fields",
+			entry: createTestSearchResultEntry("Config", "models.go", 25, 30, []models.Field{
+				{Name: "DatabaseURL", Type: "string"},
+				{Name: "Port", Type: "int"},
+				{Name: "LogLevel", Type: "string"},
+				{Name: "Features", Type: "map[string]bool"},
+			}),
+			expectedFields: createExpectedFieldReferences("models.go", 25, []struct{ name, fieldType string }{
+				{"DatabaseURL", "string"},
+				{"Port", "int"},
+				{"LogLevel", "string"},
+				{"Features", "map[string]bool"},
+			}),
+			description: "Should extract actual field names and types from parsed struct definition",
+		},
+		{
+			name: "struct with complex field types",
+			entry: createTestSearchResultEntry("Profile", "models.go", 68, 75, []models.Field{
+				{Name: "UserID", Type: "int"},
+				{Name: "Bio", Type: "string"},
+				{Name: "Address", Type: "*Address"},
+				{Name: "Skills", Type: "[]string"},
+				{Name: "CreatedAt", Type: "time.Time"},
+				{Name: "UpdatedAt", Type: "time.Time"},
+			}),
+			expectedFields: createExpectedFieldReferences("models.go", 68, []struct{ name, fieldType string }{
+				{"UserID", "int"},
+				{"Bio", "string"},
+				{"Address", "*Address"},
+				{"Skills", "[]string"},
+				{"CreatedAt", "time.Time"},
+				{"UpdatedAt", "time.Time"},
+			}),
+			description: "Should extract complex field types like pointers, slices, and custom types",
+		},
+		{
+			name:           "empty struct",
+			entry:          createTestSearchResultEntry("EmptyStruct", "models.go", 10, 11, []models.Field{}),
+			expectedFields: []FieldReference{}, // Should return empty slice, not placeholders
+			description:    "Should return empty slice for structs with no fields, not placeholder fields",
+		},
+		{
+			name: "no chunk data available",
+			entry: &index.SearchResultEntry{
+				IndexEntry: models.IndexEntry{
+					Name:      "SomeStruct",
+					Type:      index.EntityTypeType,
+					File:      "models.go",
+					StartLine: 20,
+					EndLine:   25,
+					Signature: "type SomeStruct struct",
+				},
+				ChunkData: nil, // No chunk data available
+			},
+			expectedFields: []FieldReference{}, // Should return empty slice when no data available
+			description:    "Should return empty slice when chunk data is not available",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields := server.extractFieldReferences(tt.entry)
+
+			// Check field count
+			if len(fields) != len(tt.expectedFields) {
+				t.Errorf("Expected %d fields, got %d fields", len(tt.expectedFields), len(fields))
+				t.Logf("Description: %s", tt.description)
+				return
+			}
+
+			// Check each field
+			for i, expectedField := range tt.expectedFields {
+				if i >= len(fields) {
+					t.Errorf("Missing field at index %d: expected %+v", i, expectedField)
+					continue
+				}
+
+				actualField := fields[i]
+				if actualField.Name != expectedField.Name {
+					t.Errorf("Field %d: expected name %q, got %q", i, expectedField.Name, actualField.Name)
+				}
+				if actualField.Type != expectedField.Type {
+					t.Errorf("Field %d: expected type %q, got %q", i, expectedField.Type, actualField.Type)
+				}
+				if actualField.File != expectedField.File {
+					t.Errorf("Field %d: expected file %q, got %q", i, expectedField.File, actualField.File)
+				}
+				if actualField.Line != expectedField.Line {
+					t.Errorf("Field %d: expected line %d, got %d", i, expectedField.Line, actualField.Line)
+				}
+			}
+
+			t.Logf("✓ %s", tt.description)
+		})
+	}
+}
+
+// TestExtractFieldReferences_OldVsNewBehavior demonstrates the improvement from placeholder to real extraction
+func TestExtractFieldReferences_OldVsNewBehavior(t *testing.T) {
+	server := &RepoContextMCPServer{}
+
+	// Create test data that shows the new implementation working correctly
+	entry := createTestSearchResultEntry("User", "user.go", 10, 15, []models.Field{
+		{Name: "ID", Type: "int64"},
+		{Name: "Name", Type: "string"},
+		{Name: "Email", Type: "string"},
+		{Name: "CreatedAt", Type: "*time.Time"},
+	})
+
+	fields := server.extractFieldReferences(entry)
+
+	// Verify that we get actual field names and types, not placeholders
+	expectedFieldNames := []string{"ID", "Name", "Email", "CreatedAt"}
+	expectedFieldTypes := []string{"int64", "string", "string", "*time.Time"}
+
+	if len(fields) != len(expectedFieldNames) {
+		t.Fatalf("Expected %d fields, got %d", len(expectedFieldNames), len(fields))
+	}
+
+	for i, field := range fields {
+		// OLD behavior would have generated: "Field1", "Field2", etc. with "string" type
+		// NEW behavior extracts actual field names and types
+		if field.Name == "Field1" || field.Name == "Field2" {
+			t.Errorf("Field %d: Still using old placeholder naming (Field%d), expected actual field name %q",
+				i, i+1, expectedFieldNames[i])
+		}
+		if field.Type == "string" && expectedFieldTypes[i] != "string" {
+			t.Errorf("Field %d: Still using old hardcoded 'string' type, expected %q",
+				i, expectedFieldTypes[i])
+		}
+
+		// Verify we get the expected actual values
+		if field.Name != expectedFieldNames[i] {
+			t.Errorf("Field %d: expected name %q, got %q", i, expectedFieldNames[i], field.Name)
+		}
+		if field.Type != expectedFieldTypes[i] {
+			t.Errorf("Field %d: expected type %q, got %q", i, expectedFieldTypes[i], field.Type)
+		}
+	}
+
+	t.Logf("✓ Successfully extracts actual field names and types instead of placeholders")
+	t.Logf("✓ Extracted fields: %+v", fields)
 }
