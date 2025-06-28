@@ -221,3 +221,60 @@ Successfully completed Phase 3.2 with both code context tools: `get_function_con
 The implementation demonstrates advanced MCP tool development with sophisticated feature enhancement, comprehensive dependency analysis, intelligent external call handling, and performance optimization. The clean architecture with separate file organization provides a solid foundation for Phase 3.2 development.
 
 **Phase 3.1 Achievement Summary**: Complete implementation of 12/12 tasks for enhanced call graph analysis tools with advanced depth control, external call filtering, performance optimization, comprehensive dependency analysis, TDD testing excellence, and seamless architecture integration. Phase 3.1 represents a significant advancement in call graph analysis capabilities with production-ready features for complex code analysis scenarios.
+
+### Recently Completed: Function Implementation Extraction ✅
+
+**Problem Solved**: The `buildFunctionImplementation` function in `internal/mcp/context_tools.go` was returning hard-coded placeholder bodies instead of extracting actual source code from files.
+
+**Solution Implemented**:
+
+1. **Added Real Function Body Extraction**:
+   - Created `GetFunctionImplementation` method in `internal/index/hybrid.go`
+   - Reads source files using `os.ReadFile` and extracts function bodies using AST span information (StartLine/EndLine)
+   - Provides context lines before and after the function
+   - Handles edge cases gracefully (missing files, invalid line numbers, etc.)
+
+2. **Updated MCP Context Tools**:
+   - Modified `buildFunctionImplementation` in `internal/mcp/context_tools.go` to use the new extraction capability
+   - Falls back to well-documented placeholders when extraction fails
+   - Applies token limits to prevent overwhelming responses
+   - Added `optimizeImplementationWithTokenLimits` helper function
+
+3. **Comprehensive Testing**:
+   - Added `TestHybridStorage_GetFunctionImplementation` to verify source extraction works
+   - Added `TestBuildFunctionImplementation_RealExtraction` to verify end-to-end functionality
+   - Added `TestBuildFunctionImplementation_FallbackToPlaceholder` to verify graceful fallbacks
+   - All tests passing ✅
+
+**Key Implementation Details**:
+- Uses built-in `max`/`min` functions (Go 1.21+)
+- Gracefully handles file read errors and invalid AST spans
+- Provides clear documentation when extraction fails
+- Respects token limits and truncates when necessary
+- Maintains backward compatibility with existing functionality
+
+### Current Status: Feature Complete ✅
+
+The `include_implementations` feature now works correctly:
+- ✅ Extracts real function bodies from source files
+- ✅ Provides surrounding context lines
+- ✅ Applies proper token limits
+- ✅ Falls back gracefully to documented placeholders
+- ✅ All tests passing
+
+### Next Steps
+
+Ready for:
+1. Integration testing with real repository data
+2. Performance optimization if needed
+3. Additional language support (Python, TypeScript) for function extraction
+4. Code review and merge preparation
+
+### Key Files Modified
+
+- `internal/index/hybrid.go` - Added `GetFunctionImplementation` method
+- `internal/mcp/context_tools.go` - Updated `buildFunctionImplementation` to use real extraction
+- `internal/index/hybrid_test.go` - Added comprehensive tests
+- `internal/mcp/context_tools_test.go` - Added integration tests
+
+All changes maintain full backward compatibility and provide clear user documentation.
