@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"repository-context-protocol/internal/models"
@@ -500,4 +501,130 @@ func (h *HybridStorage) updateManifestForChunk(chunk *models.SemanticChunk) erro
 
 	// Save manifest
 	return h.saveManifest()
+}
+
+// GetFunctionImplementation extracts the full function implementation from source files
+// using AST span information (StartLine/EndLine) and surrounding context lines
+func (h *HybridStorage) GetFunctionImplementation(functionName string, contextLines int) (*FunctionImplementation, error) {
+	// Query for the function to get its location and span information
+	entries, err := h.QueryByName(functionName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query function %s: %w", functionName, err)
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("function %s not found", functionName)
+	}
+
+	// Find the function entry (there might be multiple if name conflicts exist)
+	var functionEntry *QueryResult
+	for i := range entries {
+		if entries[i].IndexEntry.Type == EntityTypeFunction && entries[i].IndexEntry.Name == functionName {
+			functionEntry = &entries[i]
+			break
+		}
+	}
+
+	if functionEntry == nil {
+		return nil, fmt.Errorf("function %s not found in query results", functionName)
+	}
+
+	// Extract implementation from source file
+	return h.extractFunctionFromSource(functionEntry, contextLines)
+}
+
+// FunctionImplementation represents the extracted function implementation
+type FunctionImplementation struct {
+	Body         string   `json:"body"`
+	ContextLines []string `json:"context_lines"`
+}
+
+// extractFunctionFromSource reads the source file and extracts the function body and context
+func (h *HybridStorage) extractFunctionFromSource(entry *QueryResult, contextLines int) (*FunctionImplementation, error) {
+	filePath := entry.IndexEntry.File
+	startLine := entry.IndexEntry.StartLine
+	endLine := entry.IndexEntry.EndLine
+
+	// Validate line numbers
+	if startLine <= 0 || endLine <= 0 || startLine > endLine {
+		return &FunctionImplementation{
+			Body: "// Function implementation unavailable: invalid line numbers",
+			ContextLines: []string{
+				"// Context unavailable: invalid AST span information",
+			},
+		}, nil
+	}
+
+	// Read the source file
+	content, err := os.ReadFile(filePath) // #nosec G304 - File path comes from our indexed data
+	if err != nil {
+		return &FunctionImplementation{
+			Body: fmt.Sprintf("// Function implementation unavailable: %v", err),
+			ContextLines: []string{
+				fmt.Sprintf("// Context unavailable: failed to read file %s", filePath),
+			},
+		}, nil
+	}
+
+	// Split content into lines
+	lines := strings.Split(string(content), "\n")
+
+	// Validate line numbers against actual file content
+	if startLine > len(lines) || endLine > len(lines) {
+		return &FunctionImplementation{
+			Body: "// Function implementation unavailable: line numbers exceed file length",
+			ContextLines: []string{
+				fmt.Sprintf("// Context unavailable: file has %d lines, function spans %d-%d", len(lines), startLine, endLine),
+			},
+		}, nil
+	}
+
+	// Extract function body (convert from 1-indexed to 0-indexed)
+	functionLines := lines[startLine-1 : endLine]
+	functionBody := strings.Join(functionLines, "\n")
+
+	// Extract context lines before and after the function
+	var contextLinesResult []string
+
+	// Context before function
+	contextStart := max(0, startLine-1-contextLines)
+	contextEnd := startLine - 1
+	if contextEnd > contextStart {
+		beforeContext := lines[contextStart:contextEnd]
+		for i, line := range beforeContext {
+			lineNum := contextStart + i + 1
+			contextLinesResult = append(contextLinesResult, fmt.Sprintf("%d: %s", lineNum, line))
+		}
+	}
+
+	// Add separator if we have before context
+	if len(contextLinesResult) > 0 {
+		contextLinesResult = append(contextLinesResult, "// --- Function body starts ---")
+	}
+
+	// Context after function
+	contextStart = endLine
+	contextEnd = min(len(lines), endLine+contextLines)
+	if contextEnd > contextStart {
+		afterContext := lines[contextStart:contextEnd]
+		if len(contextLinesResult) > 0 {
+			contextLinesResult = append(contextLinesResult, "// --- Function body ends ---")
+		}
+		for i, line := range afterContext {
+			lineNum := contextStart + i + 1
+			contextLinesResult = append(contextLinesResult, fmt.Sprintf("%d: %s", lineNum, line))
+		}
+	}
+
+	// If no context lines were extracted, provide a minimal context
+	if len(contextLinesResult) == 0 {
+		contextLinesResult = []string{
+			fmt.Sprintf("// Function %s in %s (lines %d-%d)", entry.IndexEntry.Name, filepath.Base(filePath), startLine, endLine),
+		}
+	}
+
+	return &FunctionImplementation{
+		Body:         functionBody,
+		ContextLines: contextLinesResult,
+	}, nil
 }

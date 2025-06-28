@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	constDuration50ms      = 50
+	constDuration50ms      = 50 // Milliseconds per entity for build duration estimation
 	ConstFilePermission600 = 0600
 	constFilePermission755 = 0755
 )
