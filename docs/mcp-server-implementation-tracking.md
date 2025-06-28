@@ -220,11 +220,11 @@
 ### 3.2 Code Context Tools
 
 #### Context Tools
-- [ ] `get_function_context` tool
-  - [ ] Tool definition and schema
-  - [ ] Implementation detail inclusion
-  - [ ] Context line configuration
-  - [ ] Handler implementation
+- [x] `get_function_context` tool
+  - [x] Tool definition and schema with comprehensive parameter support
+  - [x] Implementation detail inclusion with configurable context lines
+  - [x] Context line configuration with validation (max 50, default 5)
+  - [x] Handler implementation with full TDD testing
 - [ ] `get_type_context` tool
   - [ ] Tool definition and schema
   - [ ] Method inclusion options
@@ -232,12 +232,24 @@
   - [ ] Handler implementation
 
 #### Context Handlers
-- [ ] `handleGetFunctionContext()` implementation
-- [ ] `handleGetTypeContext()` implementation
+- [x] `HandleGetFunctionContext()` implementation
+  - [x] Complete function context analysis with callers, callees, and related types
+  - [x] Implementation detail extraction with configurable context lines
+  - [x] Token optimization and response truncation
+  - [x] Integration with query engine and call graph functionality
+- [ ] `HandleGetTypeContext()` implementation
 
-**Progress:** 0/8 tasks complete
-**Blockers:** Depends on Phase 2 completion
-**Notes:**
+#### Code Quality Improvements
+- [x] **Linting Compliance** - Resolved major code duplication issues
+  - [x] Created `executeStandardToolHandler` pattern to eliminate 28-line duplication
+  - [x] Fixed magic numbers with `CharsPerToken` constant
+  - [x] Used proper entity type constants (`EntityTypeFunction`, `EntityKindStruct`, etc.)
+  - [x] Fixed unused parameters and range copy issues
+  - [x] Remaining duplication is minimal and acceptable (tool-specific lambda functions)
+
+**Progress:** 5/8 tasks complete (62.5%)
+**Blockers:** None - `get_function_context` complete, `get_type_context` ready for implementation
+**Notes:** ✅ **get_function_context Complete** - Full TDD implementation with comprehensive testing, parameter validation, token optimization, query engine integration, and code quality improvements. All 6 test scenarios passing with 100% functionality coverage.
 
 ### Phase 3 Testing
 - [x] Call graph analysis validation
@@ -245,7 +257,7 @@
 - [ ] Large repository performance testing
 - [ ] Memory usage optimization
 
-**Phase 3 Total Progress:** 12/18 tasks complete (Phase 3.1: 12/12 complete, Phase 3.2: 0/6 remaining)
+**Phase 3 Total Progress:** 17/21 tasks complete (Phase 3.1: 12/12 complete, Phase 3.2: 5/9 remaining)
 
 ---
 
@@ -433,6 +445,7 @@
 | Jun 26, 2025 | Phase 2.2 | Completed `initialize_repository` tool | First repository management tool implemented with full TDD approach - tool definition, path validation, directory structure creation, manifest generation, comprehensive error handling, and 6 test scenarios covering all edge cases including current directory initialization, custom paths, already initialized repositories, invalid paths, path determination logic, and manifest creation - **Phase 2.2 First Tool Complete** |
 | Jun 26, 2025 | Phase 2.2 | Completed `build_index` tool | Second repository management tool implemented with full TDD approach - tool definition with path and verbose parameters, IndexBuilder integration, repository validation, build statistics reporting, and comprehensive error handling with 6 test scenarios covering successful builds, custom paths, uninitialized repositories, invalid paths, path determination, and verbose mode statistics - **Phase 2.2 Second Tool Complete** |
 | Jun 26, 2025 | Phase 2.2 | Completed `get_repository_status` tool | Third and final repository management tool implemented with full TDD approach - comprehensive repository status detection (initialized/indexed states), detailed statistics collection for all entity types (functions, types, variables, constants), index size and build duration calculation, robust path validation and determination, and 6 test scenarios covering all functionality including uninitialized repositories, initialized-only repositories, fully indexed repositories, path validation, and detailed statistics verification - **Phase 2.2 Complete** |
+| Jun 26, 2025 | Phase 3.2 | Completed `get_function_context` tool | First code context tool implemented with full TDD approach - comprehensive function context analysis with signature, location, callers, callees, and related types; configurable implementation details with context lines validation (max 50, default 5); token optimization with intelligent truncation; integration with query engine and call graph functionality; code quality improvements including elimination of code duplication through `executeStandardToolHandler` pattern; and 6 test scenarios covering all functionality including parameter validation, response structure, token optimization, and implementation details - **Phase 3.2 First Tool Complete** |
 
 ---
 
