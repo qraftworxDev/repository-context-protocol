@@ -83,6 +83,11 @@ type FindDependenciesParams struct {
 	MaxTokens      int
 }
 
+// GetMaxTokens implements the token interface for generic handler
+func (p *FindDependenciesParams) GetMaxTokens() int {
+	return p.MaxTokens
+}
+
 // validateEnhancedCallGraphDepth validates and normalizes call graph depth
 func validateEnhancedCallGraphDepth(depth int) int {
 	if depth <= 0 {
@@ -338,35 +343,17 @@ func (s *RepoContextMCPServer) createFindDependenciesTool() mcp.Tool {
 	)
 }
 
-// HandleFindDependencies provides dependency analysis for functions and types
+// HandleFindDependencies provides comprehensive dependency analysis for functions and types
 func (s *RepoContextMCPServer) HandleFindDependencies(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// System-level validation
-	if s.QueryEngine == nil {
-		return nil, fmt.Errorf("query engine not initialized - system configuration error")
+	ops := ToolOperations[*FindDependenciesParams, *DependencyAnalysisResult]{
+		ParseParams: s.parseFindDependenciesParameters,
+		BuildResult: s.buildDependencyAnalysis,
+		OptimizeResult: func(result *DependencyAnalysisResult, maxTokens int) {
+			s.optimizeDependencyResponse(result, maxTokens)
+		},
+		ToolName: "find_dependencies",
 	}
-
-	// Repository validation
-	if err := s.validateRepository(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-	}
-
-	// Parameter parsing and validation
-	params, err := s.parseFindDependenciesParameters(request)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Parameter validation failed: %v", err)), nil
-	}
-
-	// Build dependency analysis result
-	dependencyResult, err := s.buildDependencyAnalysis(params)
-	if err != nil {
-		return s.FormatErrorResponse("find_dependencies", err), nil
-	}
-
-	// Apply token limits and optimization
-	s.optimizeDependencyResponse(dependencyResult, params.MaxTokens)
-
-	// Format and return result
-	return s.FormatSuccessResponse(dependencyResult), nil
+	return executeGenericToolHandler(s, request, ops)
 }
 
 // DependencyAnalysisResult represents the result of dependency analysis
