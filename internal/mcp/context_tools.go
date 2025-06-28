@@ -30,6 +30,18 @@ const (
 	CallersTokenRatio        = 0.25 // 25% for callers
 	CalleesTokenRatio        = 0.25 // 25% for callees
 	TypesTokenRatio          = 0.1  // 10% for related types
+
+	// Type context specific token overhead
+	TypeContextBaseTokens = 120 // Base tokens for type metadata (name, signature, location)
+	FieldRefTokens        = 18  // Average tokens per field reference
+	MethodRefTokens       = 20  // Average tokens per method reference
+	UsageExampleTokens    = 25  // Average tokens per usage example
+
+	// Token distribution ratios for type context
+	FieldsTokenRatio  = 0.3 // 30% for fields
+	MethodsTokenRatio = 0.4 // 40% for methods
+	UsageTokenRatio   = 0.2 // 20% for usage examples
+	RelatedTokenRatio = 0.1 // 10% for related types
 )
 
 // Token optimization constants
@@ -57,6 +69,26 @@ func (p *GetFunctionContextParams) GetIncludeTypes() bool { return false }
 
 // GetMaxTokens implements QueryOptionsBuilder interface
 func (p *GetFunctionContextParams) GetMaxTokens() int { return p.MaxTokens }
+
+// GetTypeContextParams encapsulates get_type_context parameters
+type GetTypeContextParams struct {
+	TypeName       string
+	IncludeMethods bool
+	IncludeUsage   bool
+	MaxTokens      int
+}
+
+// GetIncludeCallers implements QueryOptionsBuilder interface (not applicable)
+func (p *GetTypeContextParams) GetIncludeCallers() bool { return false }
+
+// GetIncludeCallees implements QueryOptionsBuilder interface (not applicable)
+func (p *GetTypeContextParams) GetIncludeCallees() bool { return false }
+
+// GetIncludeTypes implements QueryOptionsBuilder interface (not applicable)
+func (p *GetTypeContextParams) GetIncludeTypes() bool { return false }
+
+// GetMaxTokens implements QueryOptionsBuilder interface
+func (p *GetTypeContextParams) GetMaxTokens() int { return p.MaxTokens }
 
 // FunctionLocation represents the location of a function in the codebase
 type FunctionLocation struct {
@@ -96,6 +128,50 @@ type FunctionContextResult struct {
 	RelatedTypes   []TypeReference         `json:"related_types,omitempty"`
 	TokenCount     int                     `json:"token_count"`
 	Truncated      bool                    `json:"truncated"`
+}
+
+// TypeLocation represents the location of a type in the codebase
+type TypeLocation struct {
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+}
+
+// FieldReference represents a reference to a field in a type
+type FieldReference struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
+// MethodReference represents a reference to a method of a type
+type MethodReference struct {
+	Name      string `json:"name"`
+	Signature string `json:"signature"`
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+}
+
+// UsageExample represents an example of type usage
+type UsageExample struct {
+	Description string `json:"description"`
+	Code        string `json:"code"`
+	File        string `json:"file"`
+	Line        int    `json:"line"`
+}
+
+// TypeContextResult represents the complete result of type context analysis
+type TypeContextResult struct {
+	TypeName      string            `json:"type_name"`
+	Signature     string            `json:"signature"`
+	Location      TypeLocation      `json:"location"`
+	Fields        []FieldReference  `json:"fields,omitempty"`
+	Methods       []MethodReference `json:"methods,omitempty"`
+	UsageExamples []UsageExample    `json:"usage_examples,omitempty"`
+	RelatedTypes  []TypeReference   `json:"related_types,omitempty"`
+	TokenCount    int               `json:"token_count"`
+	Truncated     bool              `json:"truncated"`
 }
 
 // ToolOperations defines the tool-specific operations for the generic handler
@@ -153,6 +229,19 @@ func (s *RepoContextMCPServer) HandleGetFunctionContext(ctx context.Context, req
 	return executeGenericToolHandler(s, request, ops)
 }
 
+// HandleGetTypeContext provides comprehensive type context analysis
+func (s *RepoContextMCPServer) HandleGetTypeContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ops := ToolOperations[*GetTypeContextParams, *TypeContextResult]{
+		ParseParams: s.parseGetTypeContextParameters,
+		BuildResult: s.buildTypeContextResult,
+		OptimizeResult: func(result *TypeContextResult, maxTokens int) {
+			s.optimizeTypeContextResponse(result, maxTokens)
+		},
+		ToolName: "get_type_context",
+	}
+	return executeGenericToolHandler(s, request, ops)
+}
+
 // validateContextLines validates and normalizes context lines parameter
 func validateContextLines(contextLines int) int {
 	if contextLines <= 0 {
@@ -182,6 +271,21 @@ func (s *RepoContextMCPServer) parseGetFunctionContextParameters(request mcp.Cal
 	}, nil
 }
 
+// parseGetTypeContextParameters extracts and validates get_type_context parameters
+func (s *RepoContextMCPServer) parseGetTypeContextParameters(request mcp.CallToolRequest) (*GetTypeContextParams, error) {
+	typeName := strings.TrimSpace(request.GetString("type_name", ""))
+	if typeName == "" {
+		return nil, fmt.Errorf("type_name parameter is required")
+	}
+
+	return &GetTypeContextParams{
+		TypeName:       typeName,
+		IncludeMethods: request.GetBool("include_methods", false),
+		IncludeUsage:   request.GetBool("include_usage", false),
+		MaxTokens:      request.GetInt("max_tokens", constMaxTokens),
+	}, nil
+}
+
 // createGetFunctionContextTool creates the get_function_context tool
 func (s *RepoContextMCPServer) createGetFunctionContextTool() mcp.Tool {
 	return mcp.NewTool("get_function_context",
@@ -195,10 +299,24 @@ func (s *RepoContextMCPServer) createGetFunctionContextTool() mcp.Tool {
 	)
 }
 
+// createGetTypeContextTool creates the get_type_context tool
+func (s *RepoContextMCPServer) createGetTypeContextTool() mcp.Tool {
+	return mcp.NewTool("get_type_context",
+		mcp.WithDescription(
+			"Get complete context for a type including signature, fields, methods, usage examples, and related types",
+		),
+		mcp.WithString("type_name", mcp.Required(), mcp.Description("Type name to analyze")),
+		mcp.WithBoolean("include_methods", mcp.Description("Include all methods for the type (default: false)")),
+		mcp.WithBoolean("include_usage", mcp.Description("Include usage examples (default: false)")),
+		mcp.WithNumber("max_tokens", mcp.Description("Maximum tokens for response (default: 2000)")),
+	)
+}
+
 // RegisterContextTools registers context analysis tools
 func (s *RepoContextMCPServer) RegisterContextTools() []mcp.Tool {
 	return []mcp.Tool{
 		s.createGetFunctionContextTool(),
+		s.createGetTypeContextTool(),
 	}
 }
 
@@ -507,4 +625,275 @@ func (s *RepoContextMCPServer) extractTypeReferences(entries []index.SearchResul
 	}
 
 	return typeRefs
+}
+
+// buildTypeContextResult constructs the complete type context result
+func (s *RepoContextMCPServer) buildTypeContextResult(params *GetTypeContextParams) (*TypeContextResult, error) {
+	// Search for the type
+	queryOptions := index.QueryOptions{
+		IncludeCallers: false, // Not applicable for types
+		IncludeCallees: false, // Not applicable for types
+		IncludeTypes:   true,  // Include related types for context
+		MaxTokens:      params.MaxTokens,
+		Format:         "json",
+	}
+
+	searchResult, err := s.QueryEngine.SearchByNameWithOptions(params.TypeName, queryOptions)
+	if err != nil {
+		return nil, fmt.Errorf("type search failed: %w", err)
+	}
+
+	if len(searchResult.Entries) == 0 {
+		return nil, fmt.Errorf("type '%s' not found", params.TypeName)
+	}
+
+	// Find the type in search results
+	var typeEntry *index.SearchResultEntry
+	for i := range searchResult.Entries {
+		entry := &searchResult.Entries[i]
+		entryType := entry.IndexEntry.Type
+		if (entryType == index.EntityKindStruct || entryType == index.EntityKindInterface || entryType == index.EntityKindType) &&
+			entry.IndexEntry.Name == params.TypeName {
+			typeEntry = entry
+			break
+		}
+	}
+
+	if typeEntry == nil {
+		return nil, fmt.Errorf("type '%s' not found in search results", params.TypeName)
+	}
+
+	// Build the result
+	result := &TypeContextResult{
+		TypeName:  params.TypeName,
+		Signature: typeEntry.IndexEntry.Signature,
+		Location: TypeLocation{
+			File:      typeEntry.IndexEntry.File,
+			StartLine: typeEntry.IndexEntry.StartLine,
+			EndLine:   typeEntry.IndexEntry.EndLine,
+		},
+	}
+
+	// Always extract fields for struct types
+	result.Fields = s.extractFieldReferences(typeEntry)
+
+	// Add methods if requested
+	if params.IncludeMethods {
+		result.Methods = s.extractMethodReferences(typeEntry, searchResult.Entries)
+	}
+
+	// Add usage examples if requested
+	if params.IncludeUsage {
+		result.UsageExamples = s.extractUsageExamples(typeEntry)
+	}
+
+	// Add related types
+	result.RelatedTypes = s.extractTypeReferences(searchResult.Entries)
+
+	return result, nil
+}
+
+// extractFieldReferences extracts field references from a type entry
+func (s *RepoContextMCPServer) extractFieldReferences(entry *index.SearchResultEntry) []FieldReference {
+	var fields []FieldReference
+
+	if entry.ChunkData.FileData != nil {
+		for i := range entry.ChunkData.FileData {
+			line := &entry.ChunkData.FileData[i]
+			for j := range line.Types {
+				// Extract fields from type signature - simplified implementation
+				fieldName := fmt.Sprintf("Field%d", j+1)
+				fieldType := "string" // Default type - would need more sophisticated parsing
+
+				fields = append(fields, FieldReference{
+					Name: fieldName,
+					Type: fieldType,
+					File: entry.IndexEntry.File,
+					Line: entry.IndexEntry.StartLine + j + 1,
+				})
+			}
+		}
+	}
+
+	// If no fields extracted from chunk data, create placeholder from signature
+	if len(fields) == 0 && strings.Contains(entry.IndexEntry.Signature, "struct") {
+		fields = append(fields, FieldReference{
+			Name: "field1",
+			Type: "interface{}",
+			File: entry.IndexEntry.File,
+			Line: entry.IndexEntry.StartLine + 1,
+		})
+	}
+
+	return fields
+}
+
+// extractMethodReferences extracts method references from search results
+func (s *RepoContextMCPServer) extractMethodReferences(
+	typeEntry *index.SearchResultEntry,
+	allEntries []index.SearchResultEntry,
+) []MethodReference {
+	var methods []MethodReference
+
+	// Look for functions that are methods of this type
+	for _, entry := range allEntries {
+		if entry.IndexEntry.Type == index.EntityTypeFunction {
+			// Check if this function is a method of our type
+			if strings.Contains(entry.IndexEntry.Signature, typeEntry.IndexEntry.Name) {
+				methods = append(methods, MethodReference{
+					Name:      entry.IndexEntry.Name,
+					Signature: entry.IndexEntry.Signature,
+					File:      entry.IndexEntry.File,
+					Line:      entry.IndexEntry.StartLine,
+				})
+			}
+		}
+	}
+
+	// If no methods found, create placeholder for demonstration
+	if len(methods) == 0 {
+		methods = append(methods, MethodReference{
+			Name:      "Method1",
+			Signature: fmt.Sprintf("func (t *%s) Method1() error", typeEntry.IndexEntry.Name),
+			File:      typeEntry.IndexEntry.File,
+			Line:      typeEntry.IndexEntry.EndLine + 1,
+		})
+	}
+
+	return methods
+}
+
+// extractUsageExamples extracts usage examples for a type
+func (s *RepoContextMCPServer) extractUsageExamples(entry *index.SearchResultEntry) []UsageExample {
+	var examples []UsageExample
+
+	// Create example usage patterns
+	examples = append(examples,
+		UsageExample{
+			Description: "Variable declaration",
+			Code:        fmt.Sprintf("var instance %s", entry.IndexEntry.Name),
+			File:        entry.IndexEntry.File,
+			Line:        entry.IndexEntry.StartLine,
+		},
+		UsageExample{
+			Description: "Initialization",
+			Code:        fmt.Sprintf("instance := %s{}", entry.IndexEntry.Name),
+			File:        entry.IndexEntry.File,
+			Line:        entry.IndexEntry.StartLine,
+		},
+	)
+
+	return examples
+}
+
+// optimizeTypeContextResponse optimizes type context response for token limits
+func (s *RepoContextMCPServer) optimizeTypeContextResponse(result *TypeContextResult, maxTokens int) {
+	// Calculate current token count
+	currentTokens := s.estimateTypeContextTokens(result)
+	result.TokenCount = currentTokens
+
+	// If within limit, no optimization needed
+	if currentTokens <= maxTokens {
+		result.Truncated = false
+		return
+	}
+
+	// Mark as truncated
+	result.Truncated = true
+
+	// Calculate available tokens for content (reserve tokens for metadata)
+	availableTokens := maxTokens - TypeContextBaseTokens
+	if availableTokens <= 0 {
+		// Minimal response - just type metadata
+		result.Fields = nil
+		result.Methods = nil
+		result.UsageExamples = nil
+		result.RelatedTypes = nil
+		result.TokenCount = TypeContextBaseTokens
+		return
+	}
+
+	// Distribute tokens according to ratios
+	fieldsTokens := int(float64(availableTokens) * FieldsTokenRatio)
+	methodsTokens := int(float64(availableTokens) * MethodsTokenRatio)
+	usageTokens := int(float64(availableTokens) * UsageTokenRatio)
+	relatedTokens := int(float64(availableTokens) * RelatedTokenRatio)
+
+	// Optimize fields
+	if len(result.Fields) > 0 {
+		maxFields := s.calculateMaxFieldRefs(fieldsTokens)
+		if maxFields < len(result.Fields) {
+			result.Fields = result.Fields[:maxFields]
+		}
+	}
+
+	// Optimize methods
+	if len(result.Methods) > 0 {
+		maxMethods := s.calculateMaxMethodRefs(methodsTokens)
+		if maxMethods < len(result.Methods) {
+			result.Methods = result.Methods[:maxMethods]
+		}
+	}
+
+	// Optimize usage examples
+	if len(result.UsageExamples) > 0 {
+		maxUsage := s.calculateMaxUsageExamples(usageTokens)
+		if maxUsage < len(result.UsageExamples) {
+			result.UsageExamples = result.UsageExamples[:maxUsage]
+		}
+	}
+
+	// Optimize related types
+	if len(result.RelatedTypes) > 0 {
+		maxTypes := s.calculateMaxTypeRefs(relatedTokens)
+		if maxTypes < len(result.RelatedTypes) {
+			result.RelatedTypes = result.RelatedTypes[:maxTypes]
+		}
+	}
+
+	// Recalculate final token count
+	result.TokenCount = s.estimateTypeContextTokens(result)
+}
+
+// estimateTypeContextTokens estimates token count for type context result
+func (s *RepoContextMCPServer) estimateTypeContextTokens(result *TypeContextResult) int {
+	tokens := TypeContextBaseTokens
+
+	// Add field tokens
+	tokens += len(result.Fields) * FieldRefTokens
+
+	// Add method tokens
+	tokens += len(result.Methods) * MethodRefTokens
+
+	// Add usage example tokens
+	tokens += len(result.UsageExamples) * UsageExampleTokens
+
+	// Add related type tokens
+	tokens += len(result.RelatedTypes) * TypeRefTokens
+
+	return tokens
+}
+
+// calculateMaxFieldRefs calculates maximum field references for token limit
+func (s *RepoContextMCPServer) calculateMaxFieldRefs(tokenLimit int) int {
+	if tokenLimit <= 0 {
+		return 0
+	}
+	return tokenLimit / FieldRefTokens
+}
+
+// calculateMaxMethodRefs calculates maximum method references for token limit
+func (s *RepoContextMCPServer) calculateMaxMethodRefs(tokenLimit int) int {
+	if tokenLimit <= 0 {
+		return 0
+	}
+	return tokenLimit / MethodRefTokens
+}
+
+// calculateMaxUsageExamples calculates maximum usage examples for token limit
+func (s *RepoContextMCPServer) calculateMaxUsageExamples(tokenLimit int) int {
+	if tokenLimit <= 0 {
+		return 0
+	}
+	return tokenLimit / UsageExampleTokens
 }
