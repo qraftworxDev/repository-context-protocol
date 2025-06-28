@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"repository-context-protocol/internal/index"
+	"repository-context-protocol/internal/models"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -767,24 +768,306 @@ func (s *RepoContextMCPServer) extractMethodReferences(
 // extractUsageExamples extracts usage examples for a type
 func (s *RepoContextMCPServer) extractUsageExamples(entry *index.SearchResultEntry) []UsageExample {
 	var examples []UsageExample
+	typeName := entry.IndexEntry.Name
 
-	// Create example usage patterns
-	examples = append(examples,
-		UsageExample{
-			Description: "Variable declaration",
-			Code:        fmt.Sprintf("var instance %s", entry.IndexEntry.Name),
-			File:        entry.IndexEntry.File,
-			Line:        entry.IndexEntry.StartLine,
-		},
-		UsageExample{
-			Description: "Initialization",
-			Code:        fmt.Sprintf("instance := %s{}", entry.IndexEntry.Name),
-			File:        entry.IndexEntry.File,
-			Line:        entry.IndexEntry.StartLine,
-		},
-	)
+	// Search for actual usage patterns in the codebase
+	realExamples := s.findRealUsageExamples(typeName)
+	examples = append(examples, realExamples...)
+
+	// If no real examples found, fall back to synthetic ones
+	if len(examples) == 0 {
+		examples = append(examples,
+			UsageExample{
+				Description: "Variable declaration",
+				Code:        fmt.Sprintf("var instance %s", typeName),
+				File:        entry.IndexEntry.File,
+				Line:        entry.IndexEntry.StartLine,
+			},
+			UsageExample{
+				Description: "Initialization",
+				Code:        fmt.Sprintf("instance := %s{}", typeName),
+				File:        entry.IndexEntry.File,
+				Line:        entry.IndexEntry.StartLine,
+			},
+		)
+	}
 
 	return examples
+}
+
+// findRealUsageExamples searches the codebase for actual usage examples of a type
+func (s *RepoContextMCPServer) findRealUsageExamples(typeName string) []UsageExample {
+	var examples []UsageExample
+
+	// Search patterns for different usage contexts
+	searchPatterns := []struct {
+		pattern     string
+		description string
+	}{
+		{fmt.Sprintf("*%s{*", typeName), "Struct initialization"},
+		{fmt.Sprintf("New%s(*", typeName), "Constructor call"},
+		{fmt.Sprintf("var * %s", typeName), "Variable declaration"},
+		{fmt.Sprintf("*%s)", typeName), "Function parameter/return"},
+		{fmt.Sprintf("*%s.*", typeName), "Method call"},
+		{fmt.Sprintf("[]%s{*", typeName), "Slice initialization"},
+		{fmt.Sprintf("map[*]%s{*", typeName), "Map initialization"},
+		{fmt.Sprintf("*(%s)", typeName), "Type conversion"},
+	}
+
+	// Limit the number of examples to avoid overwhelming output
+	maxExamplesPerPattern := 2
+	totalMaxExamples := 10
+
+	for _, searchPattern := range searchPatterns {
+		if len(examples) >= totalMaxExamples {
+			break
+		}
+
+		// Search for this pattern
+		searchResult, err := s.QueryEngine.SearchByPattern(searchPattern.pattern)
+		if err != nil {
+			continue // Skip this pattern if search fails
+		}
+
+		patternExamples := s.extractExamplesFromSearchResult(searchResult, typeName)
+
+		// Limit examples per pattern
+		if len(patternExamples) > maxExamplesPerPattern {
+			patternExamples = patternExamples[:maxExamplesPerPattern]
+		}
+
+		examples = append(examples, patternExamples...)
+	}
+
+	// Deduplicate examples by code content
+	examples = s.deduplicateUsageExamples(examples)
+
+	// Limit total examples
+	if len(examples) > totalMaxExamples {
+		examples = examples[:totalMaxExamples]
+	}
+
+	return examples
+}
+
+// extractExamplesFromSearchResult extracts usage examples from search results
+func (s *RepoContextMCPServer) extractExamplesFromSearchResult(
+	searchResult *index.SearchResult,
+	typeName string,
+) []UsageExample {
+	var examples []UsageExample
+
+	for i := range searchResult.Entries {
+		entry := &searchResult.Entries[i]
+
+		// Skip if this is the type definition itself
+		if entry.IndexEntry.Type == TypeType && entry.IndexEntry.Name == typeName {
+			continue
+		}
+
+		// Extract code examples from chunk data
+		if entry.ChunkData != nil {
+			for j := range entry.ChunkData.FileData {
+				fileData := &entry.ChunkData.FileData[j]
+
+				// Extract function-related examples
+				functionExamples := s.extractFunctionUsageExamples(fileData, typeName)
+				examples = append(examples, functionExamples...)
+
+				// Extract type-related examples
+				typeExamples := s.extractTypeUsageExamples(fileData, typeName)
+				examples = append(examples, typeExamples...)
+
+				// Extract variable and constant examples
+				declExamples := s.extractDeclarationUsageExamples(fileData, typeName)
+				examples = append(examples, declExamples...)
+			}
+		}
+	}
+
+	return examples
+}
+
+// extractFunctionUsageExamples extracts usage examples from function definitions
+func (s *RepoContextMCPServer) extractFunctionUsageExamples(
+	fileData *models.FileContext,
+	typeName string,
+) []UsageExample {
+	var examples []UsageExample
+
+	for i := range fileData.Functions {
+		function := &fileData.Functions[i]
+
+		// Check function signature
+		if s.containsTypeUsage(function.Signature, typeName) {
+			examples = append(examples, UsageExample{
+				Description: "Function signature usage",
+				Code:        function.Signature,
+				File:        fileData.Path,
+				Line:        function.StartLine,
+			})
+		}
+
+		// Check function parameters
+		for j := range function.Parameters {
+			param := &function.Parameters[j]
+			if s.containsTypeUsage(param.Type, typeName) {
+				examples = append(examples, UsageExample{
+					Description: "Function parameter",
+					Code:        fmt.Sprintf("func %s(%s %s) { ... }", function.Name, param.Name, param.Type),
+					File:        fileData.Path,
+					Line:        function.StartLine,
+				})
+			}
+		}
+
+		// Check function return types
+		for j := range function.Returns {
+			returnType := &function.Returns[j]
+			if s.containsTypeUsage(returnType.Name, typeName) {
+				examples = append(examples, UsageExample{
+					Description: "Function return type",
+					Code:        fmt.Sprintf("func %s() %s { ... }", function.Name, returnType.Name),
+					File:        fileData.Path,
+					Line:        function.StartLine,
+				})
+			}
+		}
+	}
+
+	return examples
+}
+
+// extractTypeUsageExamples extracts usage examples from type definitions
+func (s *RepoContextMCPServer) extractTypeUsageExamples(
+	fileData *models.FileContext,
+	typeName string,
+) []UsageExample {
+	var examples []UsageExample
+
+	for i := range fileData.Types {
+		typeDef := &fileData.Types[i]
+
+		if typeDef.Name != typeName {
+			// Check type fields
+			for j := range typeDef.Fields {
+				field := &typeDef.Fields[j]
+				if s.containsTypeUsage(field.Type, typeName) {
+					examples = append(examples, UsageExample{
+						Description: "Type field usage",
+						Code:        fmt.Sprintf("type %s struct {\n    %s %s\n}", typeDef.Name, field.Name, field.Type),
+						File:        fileData.Path,
+						Line:        typeDef.StartLine,
+					})
+				}
+			}
+
+			// Check embedded types
+			for j := range typeDef.Embedded {
+				embedded := typeDef.Embedded[j]
+				if s.containsTypeUsage(embedded, typeName) {
+					examples = append(examples, UsageExample{
+						Description: "Type embedding",
+						Code:        fmt.Sprintf("type %s struct {\n    %s\n}", typeDef.Name, embedded),
+						File:        fileData.Path,
+						Line:        typeDef.StartLine,
+					})
+				}
+			}
+		}
+	}
+
+	return examples
+}
+
+// extractDeclarationUsageExamples extracts usage examples from variable and constant declarations
+func (s *RepoContextMCPServer) extractDeclarationUsageExamples(
+	fileData *models.FileContext,
+	typeName string,
+) []UsageExample {
+	var examples []UsageExample
+
+	// Check variable declarations
+	for i := range fileData.Variables {
+		variable := &fileData.Variables[i]
+		if s.containsTypeUsage(variable.Type, typeName) {
+			examples = append(examples, UsageExample{
+				Description: "Variable declaration",
+				Code:        fmt.Sprintf("var %s %s", variable.Name, variable.Type),
+				File:        fileData.Path,
+				Line:        variable.StartLine,
+			})
+		}
+	}
+
+	// Check constant declarations
+	for i := range fileData.Constants {
+		constant := &fileData.Constants[i]
+		if s.containsTypeUsage(constant.Type, typeName) {
+			valueStr := ""
+			if constant.Value != "" {
+				valueStr = " = " + constant.Value
+			}
+			examples = append(examples, UsageExample{
+				Description: "Constant declaration",
+				Code:        fmt.Sprintf("const %s %s%s", constant.Name, constant.Type, valueStr),
+				File:        fileData.Path,
+				Line:        constant.StartLine,
+			})
+		}
+	}
+
+	return examples
+}
+
+// containsTypeUsage checks if a code snippet contains usage of the specified type
+func (s *RepoContextMCPServer) containsTypeUsage(code, typeName string) bool {
+	if code == "" || typeName == "" {
+		return false
+	}
+
+	// Simple heuristic: look for the type name with appropriate context
+	// This could be enhanced with proper parsing
+	patterns := []string{
+		typeName + "{",       // Struct initialization
+		typeName + ")",       // Function parameter/return
+		typeName + ".",       // Method call
+		"*" + typeName,       // Pointer type
+		"[]" + typeName,      // Slice type
+		"var " + typeName,    // Variable declaration
+		": " + typeName,      // Type annotation
+		"New" + typeName,     // Constructor
+		"(" + typeName + ")", // Type conversion
+	}
+
+	codeStr := strings.ToLower(code)
+	typeNameLower := strings.ToLower(typeName)
+
+	for _, pattern := range patterns {
+		if strings.Contains(codeStr, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	// Also check for exact word match
+	return strings.Contains(codeStr, typeNameLower)
+}
+
+// deduplicateUsageExamples removes duplicate examples based on code content
+func (s *RepoContextMCPServer) deduplicateUsageExamples(examples []UsageExample) []UsageExample {
+	seen := make(map[string]bool)
+	var deduplicated []UsageExample
+
+	for _, example := range examples {
+		// Use normalized code as key for deduplication
+		key := strings.TrimSpace(strings.ToLower(example.Code))
+		if key != "" && !seen[key] {
+			seen[key] = true
+			deduplicated = append(deduplicated, example)
+		}
+	}
+
+	return deduplicated
 }
 
 // optimizeTypeContextResponse optimizes type context response for token limits
