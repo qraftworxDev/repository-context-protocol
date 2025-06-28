@@ -46,8 +46,8 @@ const (
 
 // Token optimization constants
 const (
-	CharsPerToken  = 4 // Rough estimate: 4 characters per token
-	BodyTokenRatio = 2 // Body gets half of available tokens when balancing with context
+	CharsPerToken  = 4   // Rough estimate: 4 characters per token
+	BodyTokenRatio = 0.5 // Body gets half of available tokens when balancing with context
 )
 
 // GetFunctionContextParams encapsulates get_function_context parameters
@@ -428,8 +428,9 @@ func (s *RepoContextMCPServer) optimizeImplementation(impl *FunctionImplementati
 	}
 
 	// Prioritize body over context lines using ratio
-	if bodyTokens > availableTokens/BodyTokenRatio {
-		maxBodyChars := (availableTokens / BodyTokenRatio) * CharsPerToken
+	bodyTokenLimit := int(float64(availableTokens) * BodyTokenRatio)
+	if bodyTokens > bodyTokenLimit {
+		maxBodyChars := bodyTokenLimit * CharsPerToken
 		if len(impl.Body) > maxBodyChars {
 			impl.Body = impl.Body[:maxBodyChars] + "..."
 		}
