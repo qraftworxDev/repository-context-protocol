@@ -539,59 +539,126 @@ func (s *RepoContextMCPServer) buildFunctionImplementation(
 	bodyTokenLimit := int(float64(availableTokens) * bodyTokenRatio)
 	contextTokenLimit := int(float64(availableTokens) * contextTokenRatio)
 
-	// Build initial implementation structure
+	// Attempt to extract actual function implementation from source files
+	functionName := entry.IndexEntry.Name
+
+	// Use the storage layer to extract the actual function implementation
+	if s.Storage != nil {
+		if impl, err := s.Storage.GetFunctionImplementation(functionName, contextLines); err == nil {
+			// Successfully extracted real implementation - apply token limits
+			optimizedImpl := s.optimizeImplementationWithTokenLimits(impl, bodyTokenLimit, contextTokenLimit)
+			return optimizedImpl
+		}
+		// If extraction failed, fall through to placeholder with error context
+	}
+
+	// Fallback: Return placeholder with clear documentation about limitation
 	implementation := &FunctionImplementation{
-		Body: "// Function implementation details would be extracted here",
+		Body: fmt.Sprintf(`// Function implementation extraction not supported
+//
+// The include_implementations feature is currently limited to returning
+// function signatures and metadata only. Full implementation extraction
+// requires direct access to source files which may not be available
+// in all deployment scenarios.
+//
+// Function: %s
+// File: %s
+// Lines: %d-%d
+//
+// To see the actual implementation, please refer to the source file directly.`,
+			functionName,
+			entry.IndexEntry.File,
+			entry.IndexEntry.StartLine,
+			entry.IndexEntry.EndLine),
 		ContextLines: []string{
-			"// Context line before function",
-			"// Additional context would be extracted from source file",
+			fmt.Sprintf("// Function: %s", functionName),
+			fmt.Sprintf("// File: %s", entry.IndexEntry.File),
+			fmt.Sprintf("// Signature: %s", entry.IndexEntry.Signature),
+			"// Note: Full context extraction requires source file access",
 		},
 	}
 
-	// Extract function body from chunk data if available
-	if entry.ChunkData.FileData != nil {
-		var bodyBuilder strings.Builder
+	// Extract function signatures from chunk data as fallback
+	if entry.ChunkData != nil && entry.ChunkData.FileData != nil {
+		var signatureBuilder strings.Builder
 
 		for i := range entry.ChunkData.FileData {
 			line := &entry.ChunkData.FileData[i]
 			for j := range line.Functions {
 				function := &line.Functions[j]
-				bodyBuilder.WriteString(function.Signature)
-				bodyBuilder.WriteString("\n")
+				if function.Name == functionName {
+					signatureBuilder.WriteString(function.Signature)
+					signatureBuilder.WriteString("\n")
+					// Add any available metadata
+					if len(function.Parameters) > 0 {
+						signatureBuilder.WriteString("// Parameters: ")
+						for k, param := range function.Parameters {
+							if k > 0 {
+								signatureBuilder.WriteString(", ")
+							}
+							signatureBuilder.WriteString(fmt.Sprintf("%s %s", param.Name, param.Type))
+						}
+						signatureBuilder.WriteString("\n")
+					}
+					if len(function.Returns) > 0 {
+						signatureBuilder.WriteString("// Returns: ")
+						for k, ret := range function.Returns {
+							if k > 0 {
+								signatureBuilder.WriteString(", ")
+							}
+							signatureBuilder.WriteString(ret.Name)
+						}
+						signatureBuilder.WriteString("\n")
+					}
+					break
+				}
 			}
 		}
 
-		rawBody := bodyBuilder.String()
-
-		// Apply body token limit using ratio-based allocation
-		bodyTokens := len(rawBody) / CharsPerToken
-		if bodyTokens > bodyTokenLimit {
-			maxBodyChars := bodyTokenLimit * CharsPerToken
-			if len(rawBody) > maxBodyChars {
-				implementation.Body = rawBody[:maxBodyChars] + "..."
-			} else {
-				implementation.Body = rawBody
-			}
-		} else {
-			implementation.Body = rawBody
+		if signatureBuilder.Len() > 0 {
+			// Prepend the signature information to the placeholder body
+			implementation.Body = signatureBuilder.String() + "\n" + implementation.Body
 		}
-	}
-
-	// Generate context lines based on ratio-allocated token space
-	maxContextLines := min(
-		contextTokenLimit/ContextLineTokens,
-		contextLines,
-	)
-
-	// Clear default context lines and add ratio-based context
-	implementation.ContextLines = make([]string, 0, maxContextLines)
-
-	for i := 0; i < maxContextLines; i++ {
-		contextLine := fmt.Sprintf("// Context line %d: function context would be extracted from source", i+1)
-		implementation.ContextLines = append(implementation.ContextLines, contextLine)
 	}
 
 	return implementation
+}
+
+// optimizeImplementationWithTokenLimits applies token limits to a real function implementation
+func (s *RepoContextMCPServer) optimizeImplementationWithTokenLimits(
+	impl *index.FunctionImplementation,
+	bodyTokenLimit, contextTokenLimit int,
+) *FunctionImplementation {
+	// Convert from storage layer type to MCP layer type
+	result := &FunctionImplementation{
+		Body:         impl.Body,
+		ContextLines: impl.ContextLines,
+	}
+
+	// Apply body token limit
+	bodyTokens := len(impl.Body) / CharsPerToken
+	if bodyTokens > bodyTokenLimit {
+		maxBodyChars := bodyTokenLimit * CharsPerToken
+		if len(impl.Body) > maxBodyChars {
+			result.Body = impl.Body[:maxBodyChars] + "\n\n// ... implementation truncated due to token limits ..."
+		}
+	}
+
+	// Apply context lines token limit
+	maxContextLines := min(
+		contextTokenLimit/ContextLineTokens,
+		len(impl.ContextLines),
+	)
+
+	if maxContextLines < len(impl.ContextLines) {
+		// Keep the first part of context and add truncation notice
+		result.ContextLines = make([]string, maxContextLines+1)
+		copy(result.ContextLines, impl.ContextLines[:maxContextLines])
+		result.ContextLines[maxContextLines] = fmt.Sprintf("// ... %d more context lines truncated due to token limits ...",
+			len(impl.ContextLines)-maxContextLines)
+	}
+
+	return result
 }
 
 // extractFunctionReferences converts call graph entries to function references

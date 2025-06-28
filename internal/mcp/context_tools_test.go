@@ -1,11 +1,16 @@
 package mcp
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"repository-context-protocol/internal/index"
 	"repository-context-protocol/internal/models"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestContextTools_Registration tests tool registration
@@ -730,4 +735,153 @@ func TestExtractFieldReferences_OldVsNewBehavior(t *testing.T) {
 
 	t.Logf("✓ Successfully extracts actual field names and types instead of placeholders")
 	t.Logf("✓ Extracted fields: %+v", fields)
+}
+
+func TestBuildFunctionImplementation_RealExtraction(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create storage and initialize
+	storage := index.NewHybridStorage(tempDir)
+	err := storage.Initialize()
+	require.NoError(t, err, "Failed to initialize storage")
+	defer storage.Close()
+
+	// Create QueryEngine
+	queryEngine := index.NewQueryEngine(storage)
+
+	// Create server with storage and query engine
+	server := &RepoContextMCPServer{
+		QueryEngine: queryEngine,
+		Storage:     storage,
+		RepoPath:    tempDir,
+	}
+
+	// Create a test source file with actual Go code
+	testFileContent := `package main
+
+import "fmt"
+
+// ExampleFunction demonstrates function implementation extraction
+func ExampleFunction(name string, count int) string {
+	if name == "" {
+		return "empty name"
+	}
+
+	result := fmt.Sprintf("Hello %s", name)
+	for i := 0; i < count; i++ {
+		result += "!"
+	}
+
+	return result
+}
+`
+
+	testFilePath := filepath.Join(tempDir, "example.go")
+	err = os.WriteFile(testFilePath, []byte(testFileContent), ConstFilePermission600)
+	require.NoError(t, err, "Failed to write test file")
+
+	// Create file context and store it
+	fileContext := &models.FileContext{
+		Path: testFilePath,
+		Functions: []models.Function{
+			{
+				Name:      "ExampleFunction",
+				Signature: "func ExampleFunction(name string, count int) string",
+				StartLine: 6,
+				EndLine:   15,
+				Parameters: []models.Parameter{
+					{Name: "name", Type: "string"},
+					{Name: "count", Type: "int"},
+				},
+				Returns: []models.Type{
+					{Name: "", Kind: "string"},
+				},
+			},
+		},
+	}
+
+	err = storage.StoreFileContext(fileContext)
+	require.NoError(t, err, "Failed to store file context")
+
+	// Create a search result entry to test with
+	searchEntry := &index.SearchResultEntry{
+		IndexEntry: models.IndexEntry{
+			Name:      "ExampleFunction",
+			Type:      "function",
+			File:      testFilePath,
+			StartLine: 6,
+			EndLine:   15,
+			Signature: "func ExampleFunction(name string, count int) string",
+		},
+		ChunkData: &models.SemanticChunk{
+			FileData: []models.FileContext{*fileContext},
+		},
+	}
+
+	// Test buildFunctionImplementation
+	impl := server.buildFunctionImplementation(searchEntry, 2)
+	require.NotNil(t, impl, "Implementation should not be nil")
+
+	// Verify the function body contains actual implementation (even if truncated)
+	assert.Contains(t, impl.Body, `if name == ""`, "Function body should contain the condition")
+	assert.Contains(t, impl.Body, `return "empty name"`, "Function body should contain the early return")
+	assert.Contains(t, impl.Body, `fmt.Sprintf("Hello %s", name)`, "Function body should contain the sprintf call")
+
+	// Check if the body was truncated due to token limits
+	if strings.Contains(impl.Body, "implementation truncated due to token limits") {
+		// If truncated, verify we got the beginning of the real implementation
+		assert.Contains(t, impl.Body, "func ExampleFunction(name string, count int) string",
+			"Should contain the function signature")
+		t.Logf("Function body was truncated due to token limits (this is expected behavior)")
+	} else {
+		// If not truncated, verify we got the full implementation
+		assert.Contains(t, impl.Body, `for i := 0; i < count; i++`, "Function body should contain the for loop")
+		assert.Contains(t, impl.Body, `result += "!"`, "Function body should contain the loop body")
+		assert.Contains(t, impl.Body, `return result`, "Function body should contain the final return")
+	}
+
+	// Verify context lines are provided
+	assert.NotEmpty(t, impl.ContextLines, "Context lines should not be empty")
+
+	// Verify it's not the old placeholder format
+	assert.NotContains(t, impl.Body, "Function implementation extraction not supported",
+		"Should not contain placeholder message")
+	assert.NotContains(t, impl.Body, "include_implementations feature is currently limited",
+		"Should not contain limitation message")
+
+	// Log the actual implementation for verification
+	t.Logf("Extracted implementation: %s", impl.Body)
+}
+
+func TestBuildFunctionImplementation_FallbackToPlaceholder(t *testing.T) {
+	// Create server without storage (simulating failure case)
+	server := &RepoContextMCPServer{
+		QueryEngine: nil,
+		Storage:     nil,
+		RepoPath:    "/nonexistent",
+	}
+
+	// Create a minimal search result entry
+	searchEntry := &index.SearchResultEntry{
+		IndexEntry: models.IndexEntry{
+			Name:      "TestFunction",
+			Type:      "function",
+			File:      "/nonexistent/test.go",
+			StartLine: 5,
+			EndLine:   10,
+			Signature: "func TestFunction() string",
+		},
+	}
+
+	// Test buildFunctionImplementation with no storage
+	impl := server.buildFunctionImplementation(searchEntry, 2)
+	require.NotNil(t, impl, "Implementation should not be nil")
+
+	// Verify it falls back to the documented placeholder
+	assert.Contains(t, impl.Body, "Function implementation extraction not supported",
+		"Should contain placeholder message when extraction fails")
+	assert.Contains(t, impl.Body, "include_implementations feature is currently limited",
+		"Should contain limitation message when extraction fails")
+	assert.Contains(t, impl.Body, "TestFunction", "Should include function name in placeholder")
+	assert.Contains(t, impl.Body, "/nonexistent/test.go", "Should include file path in placeholder")
 }
