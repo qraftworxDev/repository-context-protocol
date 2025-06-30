@@ -21,9 +21,9 @@ repos:
   # Custom test hook to avoid SQLite database locking in MCP tests
   - repo: local
     hooks:
-      - id: go-unit-tests-sequential
-        name: go unit tests (MCP tests sequential)
-        entry: make test-mcp
+      - id: go-tests
+        name: go tests
+        entry: make test
         language: system
         files: \.go$
         pass_filenames: false
