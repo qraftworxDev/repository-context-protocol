@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "repocontext": {
+      "command": "/usr/local/bin/repocontext-mcp",
+      "args": [],
+      "env": {
+        "REPO_ROOT": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/bin"
+      }
+    }
+  }
+}

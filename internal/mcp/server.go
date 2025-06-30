@@ -231,6 +231,16 @@ func (s *RepoContextMCPServer) Run(ctx context.Context) error {
 
 // detectRepositoryRoot finds the root directory of the current repository
 func (s *RepoContextMCPServer) detectRepositoryRoot() (string, error) {
+	// Check environment variable first
+	if envPath := os.Getenv("REPO_ROOT"); envPath != "" {
+		// Validate that the environment path exists
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath, nil
+		}
+		// Log warning if environment path doesn't exist but continue with detection
+		fmt.Fprintf(os.Stderr, "Warning: REPO_ROOT environment variable set to non-existent path: %s\n", envPath)
+	}
+
 	// Start from current directory and walk up to find .git
 	currentDir, err := os.Getwd()
 	if err != nil {

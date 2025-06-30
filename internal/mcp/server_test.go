@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -25,18 +26,60 @@ func TestNewRepoContextMCPServer(t *testing.T) {
 func TestRepoContextMCPServer_detectRepositoryRoot(t *testing.T) {
 	server := NewRepoContextMCPServer()
 
-	// This should detect the current repository root
+	// Test 1: Without environment variable (original behavior)
 	repoPath, err := server.detectRepositoryRoot()
 	if err != nil {
 		t.Fatalf("detectRepositoryRoot failed: %v", err)
 	}
-
 	if repoPath == "" {
 		t.Error("detectRepositoryRoot should return non-empty path")
 	}
+	originalPath := repoPath
 
-	// Should contain .git directory or be a valid git repository
-	// We'll implement this validation in the actual function
+	// Test 2: With valid environment variable
+	t.Run("ValidEnvironmentVariable", func(t *testing.T) {
+		// Use current working directory as a valid path
+		currentDir, _ := os.Getwd()
+		os.Setenv("REPO_ROOT", currentDir)
+		defer os.Unsetenv("REPO_ROOT")
+
+		repoPath, err := server.detectRepositoryRoot()
+		if err != nil {
+			t.Fatalf("detectRepositoryRoot with valid env var failed: %v", err)
+		}
+		if repoPath != currentDir {
+			t.Errorf("Expected path %s, got %s", currentDir, repoPath)
+		}
+	})
+
+	// Test 3: With invalid environment variable (should fall back to detection)
+	t.Run("InvalidEnvironmentVariable", func(t *testing.T) {
+		os.Setenv("REPO_ROOT", "/non/existent/path")
+		defer os.Unsetenv("REPO_ROOT")
+
+		repoPath, err := server.detectRepositoryRoot()
+		if err != nil {
+			t.Fatalf("detectRepositoryRoot with invalid env var failed: %v", err)
+		}
+		// Should fall back to original detection logic
+		if repoPath == "" {
+			t.Error("detectRepositoryRoot should return non-empty path even with invalid env var")
+		}
+	})
+
+	// Test 4: With empty environment variable (should fall back to detection)
+	t.Run("EmptyEnvironmentVariable", func(t *testing.T) {
+		os.Setenv("REPO_ROOT", "")
+		defer os.Unsetenv("REPO_ROOT")
+
+		repoPath, err := server.detectRepositoryRoot()
+		if err != nil {
+			t.Fatalf("detectRepositoryRoot with empty env var failed: %v", err)
+		}
+		if repoPath != originalPath {
+			t.Errorf("Expected fallback to original path %s, got %s", originalPath, repoPath)
+		}
+	})
 }
 
 func TestRepoContextMCPServer_initializeQueryEngine(t *testing.T) {
