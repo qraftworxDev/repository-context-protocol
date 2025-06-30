@@ -2,8 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func TestNewRepoContextMCPServer(t *testing.T) {
@@ -22,18 +27,60 @@ func TestNewRepoContextMCPServer(t *testing.T) {
 func TestRepoContextMCPServer_detectRepositoryRoot(t *testing.T) {
 	server := NewRepoContextMCPServer()
 
-	// This should detect the current repository root
+	// Test 1: Without environment variable (original behavior)
 	repoPath, err := server.detectRepositoryRoot()
 	if err != nil {
 		t.Fatalf("detectRepositoryRoot failed: %v", err)
 	}
-
 	if repoPath == "" {
 		t.Error("detectRepositoryRoot should return non-empty path")
 	}
+	originalPath := repoPath
 
-	// Should contain .git directory or be a valid git repository
-	// We'll implement this validation in the actual function
+	// Test 2: With valid environment variable
+	t.Run("ValidEnvironmentVariable", func(t *testing.T) {
+		// Use current working directory as a valid path
+		currentDir, _ := os.Getwd()
+		os.Setenv("REPO_ROOT", currentDir)
+		defer os.Unsetenv("REPO_ROOT")
+
+		repoPath, err := server.detectRepositoryRoot()
+		if err != nil {
+			t.Fatalf("detectRepositoryRoot with valid env var failed: %v", err)
+		}
+		if repoPath != currentDir {
+			t.Errorf("Expected path %s, got %s", currentDir, repoPath)
+		}
+	})
+
+	// Test 3: With invalid environment variable (should fall back to detection)
+	t.Run("InvalidEnvironmentVariable", func(t *testing.T) {
+		os.Setenv("REPO_ROOT", "/non/existent/path")
+		defer os.Unsetenv("REPO_ROOT")
+
+		repoPath, err := server.detectRepositoryRoot()
+		if err != nil {
+			t.Fatalf("detectRepositoryRoot with invalid env var failed: %v", err)
+		}
+		// Should fall back to original detection logic
+		if repoPath == "" {
+			t.Error("detectRepositoryRoot should return non-empty path even with invalid env var")
+		}
+	})
+
+	// Test 4: With empty environment variable (should fall back to detection)
+	t.Run("EmptyEnvironmentVariable", func(t *testing.T) {
+		os.Setenv("REPO_ROOT", "")
+		defer os.Unsetenv("REPO_ROOT")
+
+		repoPath, err := server.detectRepositoryRoot()
+		if err != nil {
+			t.Fatalf("detectRepositoryRoot with empty env var failed: %v", err)
+		}
+		if repoPath != originalPath {
+			t.Errorf("Expected fallback to original path %s, got %s", originalPath, repoPath)
+		}
+	})
 }
 
 func TestRepoContextMCPServer_initializeQueryEngine(t *testing.T) {
@@ -318,5 +365,230 @@ func TestRepoContextMCPServer_LifecycleIntegration(t *testing.T) {
 	capabilities := server.GetServerCapabilities()
 	if capabilities == nil {
 		t.Error("Server capabilities should be available")
+	}
+}
+
+// ============================================================================
+// Phase 4.2: Error Recovery Integration Tests
+// ============================================================================
+
+func TestRepoContextMCPServer_ErrorRecoveryInitialization(t *testing.T) {
+	server := NewRepoContextMCPServer()
+
+	if server.errorRecoveryMgr == nil {
+		t.Error("Error recovery manager should be initialized")
+	}
+
+	// Test that error recovery stats are available
+	stats := server.GetErrorRecoveryStats()
+	if stats == nil {
+		t.Error("Error recovery stats should not be nil")
+	}
+
+	if stats["total_circuit_breakers"] == nil {
+		t.Error("Error recovery stats should include circuit breaker count")
+	}
+}
+
+func TestRepoContextMCPServer_ExecuteToolWithRecovery_Success(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	ctx := context.Background()
+
+	// Mock successful operation
+	mockOperation := func() (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("success"), nil
+	}
+
+	result, err := server.ExecuteToolWithRecovery(ctx, "test_tool", mockOperation)
+
+	if err != nil {
+		t.Errorf("ExecuteToolWithRecovery should not return error for successful operation: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("ExecuteToolWithRecovery should return result")
+	}
+
+	// Verify circuit breaker recorded success
+	cb := server.errorRecoveryMgr.GetCircuitBreaker("test_tool")
+	if cb.GetState() != CircuitBreakerClosed {
+		t.Error("Circuit breaker should remain closed after successful operation")
+	}
+
+	if cb.GetFailureCount() != 0 {
+		t.Errorf("Circuit breaker should have 0 failures after success, got %d", cb.GetFailureCount())
+	}
+}
+
+func TestRepoContextMCPServer_ExecuteToolWithRecovery_RetryableFailure(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	ctx := context.Background()
+
+	attemptCount := 0
+	// Mock operation that fails initially then succeeds
+	mockOperation := func() (*mcp.CallToolResult, error) {
+		attemptCount++
+		if attemptCount < 2 {
+			return nil, errors.New("query failed")
+		}
+		return mcp.NewToolResultText("success after retry"), nil
+	}
+
+	result, err := server.ExecuteToolWithRecovery(ctx, "test_tool", mockOperation)
+
+	if err != nil {
+		t.Errorf("ExecuteToolWithRecovery should succeed after retries: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("ExecuteToolWithRecovery should return result after retry")
+	}
+
+	// Should have attempted more than once
+	if attemptCount < 2 {
+		t.Errorf("Expected at least 2 attempts, got %d", attemptCount)
+	}
+
+	// Circuit breaker should be closed after eventual success
+	cb := server.errorRecoveryMgr.GetCircuitBreaker("test_tool")
+	if cb.GetState() != CircuitBreakerClosed {
+		t.Error("Circuit breaker should be closed after eventual success")
+	}
+}
+
+func TestRepoContextMCPServer_ExecuteToolWithRecovery_NonRetryableFailure(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	ctx := context.Background()
+
+	attemptCount := 0
+	// Mock operation that always fails with non-retryable error
+	mockOperation := func() (*mcp.CallToolResult, error) {
+		attemptCount++
+		return nil, errors.New("validation failed")
+	}
+
+	_, err := server.ExecuteToolWithRecovery(ctx, "test_tool", mockOperation)
+
+	if err == nil {
+		t.Error("ExecuteToolWithRecovery should return error for non-retryable failure")
+	}
+
+	// Should have attempted only once for non-retryable error
+	if attemptCount != 1 {
+		t.Errorf("Expected 1 attempt for non-retryable error, got %d", attemptCount)
+	}
+
+	// Circuit breaker should record the failure
+	cb := server.errorRecoveryMgr.GetCircuitBreaker("test_tool")
+	if cb.GetFailureCount() == 0 {
+		t.Error("Circuit breaker should record failure")
+	}
+}
+
+func TestRepoContextMCPServer_ExecuteToolWithRecovery_CircuitBreakerOpen(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	ctx := context.Background()
+
+	// Mock operation that always fails
+	mockOperation := func() (*mcp.CallToolResult, error) {
+		return nil, errors.New("storage failed")
+	}
+
+	// Execute multiple times to open circuit breaker
+	for i := 0; i < DefaultFailureThreshold; i++ {
+		_, err := server.ExecuteToolWithRecovery(ctx, "test_tool", mockOperation)
+		if err == nil {
+			t.Error("ExecuteToolWithRecovery should return error for failing operation")
+		}
+	}
+
+	// Circuit breaker should now be open
+	cb := server.errorRecoveryMgr.GetCircuitBreaker("test_tool")
+	if cb.GetState() != CircuitBreakerOpen {
+		t.Error("Circuit breaker should be open after threshold failures")
+	}
+
+	// Next execution should fail immediately due to circuit breaker
+	result, err := server.ExecuteToolWithRecovery(ctx, "test_tool", mockOperation)
+
+	if err == nil {
+		t.Error("ExecuteToolWithRecovery should fail when circuit breaker is open")
+	}
+
+	if result != nil {
+		t.Error("ExecuteToolWithRecovery should not return result when circuit breaker is open")
+	}
+
+	// Error should mention circuit breaker
+	if !strings.Contains(err.Error(), "circuit breaker") {
+		t.Error("Error message should mention circuit breaker")
+	}
+}
+
+func TestRepoContextMCPServer_GetErrorRecoveryStats(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	ctx := context.Background()
+
+	// Execute some operations to generate stats
+	mockOperation := func() (*mcp.CallToolResult, error) {
+		return nil, errors.New("test error")
+	}
+
+	_, err := server.ExecuteToolWithRecovery(ctx, "tool1", mockOperation)
+	if err == nil {
+		t.Error("ExecuteToolWithRecovery should return error for failing operation")
+	}
+	_, err = server.ExecuteToolWithRecovery(ctx, "tool2", mockOperation)
+	if err == nil {
+		t.Error("ExecuteToolWithRecovery should return error for failing operation")
+	}
+
+	stats := server.GetErrorRecoveryStats()
+
+	if stats == nil {
+		t.Fatal("GetErrorRecoveryStats should not return nil")
+	}
+
+	if stats["total_circuit_breakers"] != 2 {
+		t.Errorf("Expected 2 circuit breakers, got %v", stats["total_circuit_breakers"])
+	}
+
+	if stats["circuit_breakers"] == nil {
+		t.Error("Stats should include circuit breaker details")
+	}
+
+	if stats["retry_config"] == nil {
+		t.Error("Stats should include retry configuration")
+	}
+}
+
+func TestRepoContextMCPServer_ErrorRecoveryManager_NilHandling(t *testing.T) {
+	server := &RepoContextMCPServer{
+		// Don't initialize error recovery manager
+		errorRecoveryMgr: nil,
+	}
+
+	ctx := context.Background()
+
+	// Mock operation
+	mockOperation := func() (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("success"), nil
+	}
+
+	// Should fallback to direct execution
+	result, err := server.ExecuteToolWithRecovery(ctx, "test_tool", mockOperation)
+
+	if err != nil {
+		t.Errorf("ExecuteToolWithRecovery should work with nil error recovery manager: %v", err)
+	}
+
+	if result == nil {
+		t.Error("ExecuteToolWithRecovery should return result even with nil error recovery manager")
+	}
+
+	// Stats should indicate not initialized
+	stats := server.GetErrorRecoveryStats()
+	if stats["status"] != "not_initialized" {
+		t.Error("Stats should indicate error recovery manager is not initialized")
 	}
 }

@@ -1,4 +1,4 @@
-.PHONY: build test install clean lint fmt vet tidy deps dev-setup integration-test coverage pre-commit help
+.PHONY: build test test-mcp test-parallel install clean lint fmt vet tidy deps dev-setup integration-test coverage pre-commit help
 
 # Binary names
 BINARY_NAME=repocontext
@@ -8,6 +8,10 @@ MCP_BINARY_NAME=repocontext-mcp
 VERSION ?= $(shell git describe --tags --always --dirty)
 BUILD_TIME = $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS = -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
+
+# Test Strategy:
+# MCP tests use SQLite databases which can cause locking issues during parallel execution.
+# Therefore, MCP tests are run sequentially (-p 1) while other tests run in parallel for speed.
 
 # Default target
 help: ## Show this help message
@@ -34,6 +38,20 @@ build: ## Build binaries
 
 test: ## Run unit tests
 	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
+		echo "Running non-MCP tests in parallel..."; \
+		go test -v -race $$(go list ./... | grep -v '/internal/mcp$$'); \
+		echo "Running MCP tests sequentially (to avoid SQLite database locks)..."; \
+		go test -v -race -p 1 ./internal/mcp; \
+	else \
+		echo "No Go files found, skipping tests"; \
+	fi
+
+test-mcp: ## Run MCP tests only (sequentially)
+	@echo "Running MCP tests sequentially..."
+	@go test -v -race -p 1 ./internal/mcp
+
+test-parallel: ## Run all tests in parallel (may cause SQLite locks in MCP tests)
+	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
 		go test -v -race ./...; \
 	else \
 		echo "No Go files found, skipping tests"; \
@@ -41,7 +59,8 @@ test: ## Run unit tests
 
 coverage: ## Run tests with coverage
 	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
-		go test -v -race -coverprofile=coverage.out ./...; \
+		echo "Running coverage tests (MCP tests sequentially to avoid SQLite locks)..."; \
+		go test -v -race -coverprofile=coverage.out -p 1 ./...; \
 		go tool cover -html=coverage.out -o coverage.html; \
 		go tool cover -func=coverage.out | tail -1; \
 	else \

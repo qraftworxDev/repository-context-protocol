@@ -167,33 +167,36 @@ func (s *RepoContextMCPServer) buildQueryOptionsFromParams(params QueryOptionsBu
 
 // HandleAdvancedQueryByName provides enhanced query_by_name with better parameter handling
 func (s *RepoContextMCPServer) HandleAdvancedQueryByName(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// System-level validation
-	if s.QueryEngine == nil {
-		return nil, fmt.Errorf("query engine not initialized - system configuration error")
-	}
+	// Phase 4.2: Execute with error recovery
+	return s.ExecuteToolWithRecovery(ctx, "query_by_name", func() (*mcp.CallToolResult, error) {
+		// System-level validation
+		if s.QueryEngine == nil {
+			return nil, fmt.Errorf("query engine not initialized - system configuration error")
+		}
 
-	// Repository validation
-	if err := s.validateRepository(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
-	}
+		// Repository validation
+		if err := s.validateRepository(); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Repository validation failed: %v", err)), nil
+		}
 
-	// Enhanced parameter parsing
-	params, err := s.parseQueryByNameParameters(request)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Parameter validation failed: %v", err)), nil
-	}
+		// Enhanced parameter parsing
+		params, err := s.parseQueryByNameParameters(request)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Parameter validation failed: %v", err)), nil
+		}
 
-	// Query options integration
-	queryOptions := s.buildQueryOptionsFromParams(params)
+		// Query options integration
+		queryOptions := s.buildQueryOptionsFromParams(params)
 
-	// Execute query with enhanced error handling
-	searchResult, err := s.QueryEngine.SearchByNameWithOptions(params.Name, queryOptions)
-	if err != nil {
-		return s.FormatErrorResponse("query_by_name", err), nil
-	}
+		// Execute query with enhanced error handling
+		searchResult, err := s.QueryEngine.SearchByNameWithOptions(params.Name, queryOptions)
+		if err != nil {
+			return s.FormatErrorResponse("query_by_name", err), nil
+		}
 
-	// Response optimization
-	return s.FormatSuccessResponse(searchResult), nil
+		// Response optimization
+		return s.FormatSuccessResponse(searchResult), nil
+	})
 }
 
 // HandleAdvancedQueryByPattern provides enhanced query_by_pattern with better filtering
