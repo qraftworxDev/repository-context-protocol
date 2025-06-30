@@ -36,11 +36,16 @@ type RepoContextMCPServer struct {
 	Storage     *index.HybridStorage
 	RepoPath    string
 	server      *server.MCPServer
+	// Phase 4.2: Error Recovery Manager
+	errorRecoveryMgr *ErrorRecoveryManager
 }
 
 // NewRepoContextMCPServer creates a new MCP server instance
 func NewRepoContextMCPServer() *RepoContextMCPServer {
-	return &RepoContextMCPServer{}
+	return &RepoContextMCPServer{
+		// Phase 4.2: Initialize error recovery manager
+		errorRecoveryMgr: NewErrorRecoveryManager(),
+	}
 }
 
 // ============================================================================
@@ -313,4 +318,33 @@ func (s *RepoContextMCPServer) FormatSuccessResponse(data interface{}) *mcp.Call
 func (s *RepoContextMCPServer) FormatErrorResponse(operation string, err error) *mcp.CallToolResult {
 	errorMsg := fmt.Sprintf("Operation '%s' failed: %v", operation, err)
 	return mcp.NewToolResultError(errorMsg)
+}
+
+// ============================================================================
+// Phase 4.2: Error Recovery Integration
+// ============================================================================
+
+// ExecuteToolWithRecovery executes a tool operation with circuit breaker and retry mechanisms
+func (s *RepoContextMCPServer) ExecuteToolWithRecovery(
+	ctx context.Context,
+	toolName string,
+	operation func() (*mcp.CallToolResult, error),
+) (*mcp.CallToolResult, error) {
+	if s.errorRecoveryMgr == nil {
+		// Fallback to direct execution if error recovery manager is not initialized
+		return operation()
+	}
+
+	return s.errorRecoveryMgr.ExecuteWithRecovery(ctx, toolName, operation)
+}
+
+// GetErrorRecoveryStats returns statistics about error recovery
+func (s *RepoContextMCPServer) GetErrorRecoveryStats() map[string]interface{} {
+	if s.errorRecoveryMgr == nil {
+		return map[string]interface{}{
+			"status": "not_initialized",
+		}
+	}
+
+	return s.errorRecoveryMgr.GetRecoveryStats()
 }

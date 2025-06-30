@@ -1097,3 +1097,35 @@ var Config GlobalConfig = Config{Port: 8080, Host: "localhost"}
 		}
 	})
 }
+
+// ============================================================================
+// Phase 4.2: Error Recovery Integration Tests for Tool Handlers
+// ============================================================================
+
+func TestAdvancedQueryByName_ErrorRecoveryIntegration(t *testing.T) {
+	server := NewRepoContextMCPServer()
+	ctx := context.Background()
+
+	// Test that the handler correctly integrates with error recovery
+	request := mcp.CallToolRequest{}
+
+	// This should trigger the error recovery mechanism because QueryEngine is nil
+	_, err := server.HandleAdvancedQueryByName(ctx, request)
+
+	if err == nil {
+		t.Error("Expected error from HandleAdvancedQueryByName with nil QueryEngine")
+	}
+
+	// Verify circuit breaker was used (should have a failure recorded)
+	cb := server.errorRecoveryMgr.GetCircuitBreaker("query_by_name")
+	if cb.GetFailureCount() == 0 {
+		t.Error("Circuit breaker should have recorded failure")
+	}
+
+	// Verify error recovery stats include this operation
+	stats := server.GetErrorRecoveryStats()
+	circuitBreakers := stats["circuit_breakers"].(map[string]interface{})
+	if _, exists := circuitBreakers["query_by_name"]; !exists {
+		t.Error("Error recovery stats should include query_by_name circuit breaker")
+	}
+}
