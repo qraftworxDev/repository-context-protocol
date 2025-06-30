@@ -422,8 +422,20 @@ func TestQueryEngine_SearchInFileWithIncludeTypes(t *testing.T) {
 		}
 	}
 
-	// The IncludeTypes flag should work (this is currently not implemented but the test structure is correct)
-	// In the future, this could add additional related type information
+	// Test that IncludeTypes flag works correctly
+	if options.IncludeTypes {
+		// When IncludeTypes is true, we should find types in addition to functions/variables
+		foundType := false
+		for _, entry := range results.Entries {
+			if entry.IndexEntry.Type == "struct" || entry.IndexEntry.Type == "interface" {
+				foundType = true
+				break
+			}
+		}
+		if !foundType {
+			t.Error("Expected to find types when IncludeTypes is true")
+		}
+	}
 }
 
 func TestQueryEngine_GetCallGraphWithOptions_OnlyCallers(t *testing.T) {
@@ -731,6 +743,97 @@ func TestQueryEngine_SearchByTypeWithTokenLimit(t *testing.T) {
 
 	// Use helper function to validate token limits
 	validateTokenLimits(t, engine, results, options.MaxTokens)
+}
+
+func TestQueryEngine_IncludeTypesFlag(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test pattern search WITHOUT IncludeTypes - should not include types
+	optionsWithoutTypes := QueryOptions{
+		IncludeTypes: false,
+	}
+
+	resultWithoutTypes, err := engine.SearchByPatternWithOptions("Test*", optionsWithoutTypes)
+	if err != nil {
+		t.Fatalf("Failed to search pattern without types: %v", err)
+	}
+
+	// Count entities by type without IncludeTypes
+	functionsWithoutTypes := 0
+	typesWithoutTypes := 0
+	for _, entry := range resultWithoutTypes.Entries {
+		switch entry.IndexEntry.Type {
+		case "function":
+			functionsWithoutTypes++
+		case "struct", "interface", "type", "alias", "enum":
+			typesWithoutTypes++
+		}
+	}
+
+	// Test pattern search WITH IncludeTypes - should include types
+	optionsWithTypes := QueryOptions{
+		IncludeTypes: true,
+	}
+
+	resultWithTypes, err := engine.SearchByPatternWithOptions("Test*", optionsWithTypes)
+	if err != nil {
+		t.Fatalf("Failed to search pattern with types: %v", err)
+	}
+
+	// Count entities by type with IncludeTypes
+	functionsWithTypes := 0
+	typesWithTypes := 0
+	for _, entry := range resultWithTypes.Entries {
+		switch entry.IndexEntry.Type {
+		case "function":
+			functionsWithTypes++
+		case "struct", "interface", "type", "alias", "enum":
+			typesWithTypes++
+		}
+	}
+
+	// Verify behavior
+	if typesWithoutTypes > 0 {
+		t.Errorf("Expected no types without IncludeTypes flag, but found %d", typesWithoutTypes)
+	}
+
+	if functionsWithoutTypes != functionsWithTypes {
+		t.Errorf("Function count should be same regardless of IncludeTypes flag: without=%d, with=%d",
+			functionsWithoutTypes, functionsWithTypes)
+	}
+
+	// Should have more total entries when IncludeTypes is true (assuming there are types matching the pattern)
+	if len(resultWithTypes.Entries) <= len(resultWithoutTypes.Entries) {
+		t.Logf("Warning: Expected more entries with IncludeTypes=true, but got without=%d, with=%d",
+			len(resultWithoutTypes.Entries), len(resultWithTypes.Entries))
+		t.Logf("This might be expected if no types match the 'Test*' pattern")
+	}
+
+	// Test that types are included when IncludeTypes is true (if any exist)
+	if typesWithTypes == 0 {
+		// Check if there are any types at all that match the pattern
+		allTypeResults, _ := engine.SearchByType("struct")
+		hasMatchingTypes := false
+		for _, entry := range allTypeResults.Entries {
+			if strings.HasPrefix(entry.IndexEntry.Name, "Test") {
+				hasMatchingTypes = true
+				break
+			}
+		}
+		if hasMatchingTypes {
+			t.Error("Expected to find types when IncludeTypes is true and matching types exist")
+		}
+	}
+
+	t.Logf("Pattern search results - Without types: %d entries (%d functions, %d types)",
+		len(resultWithoutTypes.Entries), functionsWithoutTypes, typesWithoutTypes)
+	t.Logf("Pattern search results - With types: %d entries (%d functions, %d types)",
+		len(resultWithTypes.Entries), functionsWithTypes, typesWithTypes)
 }
 
 func TestQueryEngine_CallGraphJSONSerialization(t *testing.T) {

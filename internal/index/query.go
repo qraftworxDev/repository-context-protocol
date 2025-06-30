@@ -251,17 +251,19 @@ func (qe *QueryEngine) SearchByPatternWithOptions(pattern string, options QueryO
 		}
 	}
 
-	// Search all type kinds (struct, interface, etc.) since types are stored by their specific kind
-	typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum}
-	for _, typeKind := range typeKinds {
-		queryResults, err := qe.storage.QueryByType(typeKind)
-		if err != nil {
-			continue // Skip errors and continue with other types
-		}
+	// Search all type kinds (struct, interface, etc.) if IncludeTypes is enabled
+	if options.IncludeTypes {
+		typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum}
+		for _, typeKind := range typeKinds {
+			queryResults, err := qe.storage.QueryByType(typeKind)
+			if err != nil {
+				continue // Skip errors and continue with other types
+			}
 
-		for _, qr := range queryResults {
-			if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
-				allEntries = append(allEntries, SearchResultEntry(qr))
+			for _, qr := range queryResults {
+				if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
+					allEntries = append(allEntries, SearchResultEntry(qr))
+				}
 			}
 		}
 	}
@@ -325,17 +327,19 @@ func (qe *QueryEngine) SearchInFileWithOptions(filePath string, options QueryOpt
 		}
 	}
 
-	// Search for all type kinds
-	for _, typeKind := range typeKinds {
-		queryResults, err := qe.storage.QueryByType(typeKind)
-		if err != nil {
-			continue
-		}
+	// Search for all type kinds if IncludeTypes is enabled
+	if options.IncludeTypes {
+		for _, typeKind := range typeKinds {
+			queryResults, err := qe.storage.QueryByType(typeKind)
+			if err != nil {
+				continue
+			}
 
-		for _, qr := range queryResults {
-			// Match file path (handle both absolute and relative paths)
-			if qr.IndexEntry.File == filePath || filepath.Base(qr.IndexEntry.File) == filepath.Base(filePath) {
-				allEntries = append(allEntries, SearchResultEntry(qr))
+			for _, qr := range queryResults {
+				// Match file path (handle both absolute and relative paths)
+				if qr.IndexEntry.File == filePath || filepath.Base(qr.IndexEntry.File) == filepath.Base(filePath) {
+					allEntries = append(allEntries, SearchResultEntry(qr))
+				}
 			}
 		}
 	}
