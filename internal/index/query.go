@@ -36,6 +36,9 @@ const (
 	MetadataTokens   = 50
 	DefaultMaxDepth  = 1
 	LookAheadMatches = 2
+
+	// Call graph constants
+	CallGraphFunctionSplitParts = 2
 )
 
 // Query engine for semantic searches
@@ -77,18 +80,18 @@ type SearchResultEntry struct {
 
 // CallGraphInfo provides call relationship information
 type CallGraphInfo struct {
-	Function string           `json:"function"` // Target function name
-	Callers  []CallGraphEntry `json:"callers"`  // Functions that call this function
-	Callees  []CallGraphEntry `json:"callees"`  // Functions called by this function
-	Depth    int              `json:"depth"`    // Traversal depth used
+	Function string           `json:"function"`          // Target function name
+	Callers  []CallGraphEntry `json:"callers,omitempty"` // Functions that call this function
+	Callees  []CallGraphEntry `json:"callees,omitempty"` // Functions called by this function
+	Depth    int              `json:"depth"`             // Traversal depth used
 }
 
 // CallGraphEntry represents a single call relationship
 type CallGraphEntry struct {
-	Function  string                `json:"function"`   // Function name
-	File      string                `json:"file"`       // File where function is defined
-	Line      int                   `json:"line"`       // Line number of call
-	ChunkData *models.SemanticChunk `json:"chunk_data"` // Detailed semantic data
+	Function  string                `json:"function"`             // Function name
+	File      string                `json:"file"`                 // File where function is defined
+	Line      int                   `json:"line"`                 // Line number of call
+	ChunkData *models.SemanticChunk `json:"chunk_data,omitempty"` // Detailed semantic data
 }
 
 // NewQueryEngine creates a new query engine with the given storage
@@ -374,8 +377,6 @@ func (qe *QueryEngine) GetCallGraph(functionName string, maxDepth int) (*CallGra
 func (qe *QueryEngine) GetCallGraphWithOptions(functionName string, options QueryOptions) (*CallGraphInfo, error) {
 	callGraph := &CallGraphInfo{
 		Function: functionName,
-		Callers:  []CallGraphEntry{},
-		Callees:  []CallGraphEntry{},
 		Depth:    options.MaxDepth,
 	}
 
@@ -413,7 +414,7 @@ func (qe *QueryEngine) populateCallGraphEntriesWithDepth(
 	maxDepth, currentDepth int,
 	visited map[string]bool,
 ) ([]CallGraphEntry, error) {
-	var entries []CallGraphEntry
+	entries := []CallGraphEntry{}
 
 	// Stop if we've reached max depth
 	if currentDepth >= maxDepth {
@@ -477,6 +478,21 @@ func (qe *QueryEngine) createCallGraphEntry(functionName, file string, line int)
 	// Load chunk data for the function
 	functionEntries, err := qe.storage.QueryByName(functionName)
 	var chunkData *models.SemanticChunk
+
+	// If direct lookup fails and it looks like a method call, try resolving the method name
+	if (err != nil || len(functionEntries) == 0) && strings.Contains(functionName, ".") {
+		// Extract method name from receiver.methodName
+		parts := strings.Split(functionName, ".")
+		if len(parts) >= CallGraphFunctionSplitParts {
+			methodName := parts[len(parts)-1] // Get the last part (method name)
+			methodEntries, methodErr := qe.storage.QueryByName(methodName)
+			if methodErr == nil && len(methodEntries) > 0 {
+				functionEntries = methodEntries
+				err = nil
+			}
+		}
+	}
+
 	if err == nil && len(functionEntries) > 0 {
 		chunkData = functionEntries[0].ChunkData
 	}

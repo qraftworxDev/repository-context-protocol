@@ -1,7 +1,9 @@
 package index
 
 import (
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -731,6 +733,130 @@ func TestQueryEngine_SearchByTypeWithTokenLimit(t *testing.T) {
 	validateTokenLimits(t, engine, results, options.MaxTokens)
 }
 
+func TestQueryEngine_CallGraphJSONSerialization(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	tests := []struct {
+		name           string
+		functionName   string
+		includeCallers bool
+		includeCallees bool
+		expectCallers  bool
+		expectCallees  bool
+	}{
+		{
+			name:           "Neither included - both omitted",
+			functionName:   "HelperFunction",
+			includeCallers: false,
+			includeCallees: false,
+			expectCallers:  false,
+			expectCallees:  false,
+		},
+		{
+			name:           "Only callers included",
+			functionName:   "HelperFunction",
+			includeCallers: true,
+			includeCallees: false,
+			expectCallers:  true,
+			expectCallees:  false,
+		},
+		{
+			name:           "Only callees included",
+			functionName:   "MainFunction",
+			includeCallers: false,
+			includeCallees: true,
+			expectCallers:  false,
+			expectCallees:  true,
+		},
+		{
+			name:           "Both included with callers only",
+			functionName:   "HelperFunction",
+			includeCallers: true,
+			includeCallees: true,
+			expectCallers:  true,
+			expectCallees:  false, // HelperFunction has no callees, so should be omitted
+		},
+		{
+			name:           "Both included with both present",
+			functionName:   "MainFunction",
+			includeCallers: true,
+			includeCallees: true,
+			expectCallers:  false, // MainFunction has no callers, so should be omitted
+			expectCallees:  true,  // MainFunction calls other functions
+		},
+		{
+			name:           "Function with no callers/callees",
+			functionName:   "IsolatedFunction",
+			includeCallers: true,
+			includeCallees: true,
+			expectCallers:  false, // Should be omitted when empty
+			expectCallees:  false, // Should be omitted when empty
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := QueryOptions{
+				IncludeCallers: tt.includeCallers,
+				IncludeCallees: tt.includeCallees,
+				MaxDepth:       2,
+			}
+
+			result, err := engine.SearchByNameWithOptions(tt.functionName, options)
+			if err != nil {
+				t.Fatalf("Failed to search for %s: %v", tt.functionName, err)
+			}
+
+			// Marshal to JSON to test serialization
+			jsonData, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				t.Fatalf("Failed to marshal result to JSON: %v", err)
+			}
+
+			jsonStr := string(jsonData)
+
+			// Check for presence/absence of callers field
+			if tt.expectCallers {
+				if !strings.Contains(jsonStr, `"callers"`) {
+					t.Errorf("Expected 'callers' field in JSON output, but it was omitted")
+				}
+				// Ensure it's not null
+				if strings.Contains(jsonStr, `"callers": null`) {
+					t.Errorf("Expected 'callers' field to be an array, but got null")
+				}
+			} else if strings.Contains(jsonStr, `"callers"`) {
+				t.Errorf("Expected 'callers' field to be omitted from JSON output, but it was present")
+			}
+
+			// Check for presence/absence of callees field
+			if tt.expectCallees {
+				if !strings.Contains(jsonStr, `"callees"`) {
+					t.Errorf("Expected 'callees' field in JSON output, but it was omitted")
+				}
+				// Ensure it's not null
+				if strings.Contains(jsonStr, `"callees": null`) {
+					t.Errorf("Expected 'callees' field to be an array, but got null")
+				}
+			} else if strings.Contains(jsonStr, `"callees"`) {
+				t.Errorf("Expected 'callees' field to be omitted from JSON output, but it was present")
+			}
+
+			// Verify that no null values appear for callers/callees
+			if strings.Contains(jsonStr, `"callers": null`) {
+				t.Error("Found null value for callers field - should be omitted or empty array")
+			}
+			if strings.Contains(jsonStr, `"callees": null`) {
+				t.Error("Found null value for callees field - should be omitted or empty array")
+			}
+		})
+	}
+}
+
 func TestQueryEngine_CallGraphMaxDepthActuallyUsed(t *testing.T) {
 	tempDir, storage := setupTestStorage(t)
 	defer os.RemoveAll(tempDir)
@@ -952,6 +1078,13 @@ func setupTestDataWithCallerCalleeRelations(t *testing.T, storage *HybridStorage
 				StartLine: 30,
 				EndLine:   35,
 				Calls:     []string{"HelperFunction"},
+			},
+			{
+				Name:      "IsolatedFunction",
+				Signature: "func IsolatedFunction()",
+				StartLine: 40,
+				EndLine:   45,
+				// IsolatedFunction has no calls and no callers
 			},
 		},
 		Types: []models.TypeDef{

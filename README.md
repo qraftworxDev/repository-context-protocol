@@ -249,19 +249,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Todo:
 1. precommit integration
-1. mcp server creation
-1. testing with LLM
-1. extend to support Python
+1. testing with LLM - IN PROGRESS
 
 # Go bugs
-1. repocontext query --search "main*" --include-callers --json
-    - callers: null i.s.o. callers: []
-    - callees: [] i.s.o. omitted if empty
-1. query --entity-type function --include-callers --include-callees
-    - callers: (none)
-    - callees: populated
 1. repocontext query --entity-type function --include-types
-    - doesn't differ from "repocontext query --entity-type function"
+    - doesn't differ from "repocontext query --entity-type function" (OR repocontext query --search "Run*")
 
 # Python bugs
 1. Function signature maps to go-based types, should stick to Python
