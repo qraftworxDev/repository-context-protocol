@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -585,19 +586,19 @@ func TestErrorContext_ToError(t *testing.T) {
 	errMsg := err.Error()
 
 	// Check that error message contains expected components
-	if !contains(errMsg, "test_operation") {
+	if !strings.Contains(errMsg, "test_operation") {
 		t.Error("Error message should contain operation name")
 	}
 
-	if !contains(errMsg, "original error message") {
+	if !strings.Contains(errMsg, "original error message") {
 		t.Error("Error message should contain original error")
 	}
 
-	if !contains(errMsg, "test_code") {
+	if !strings.Contains(errMsg, "test_code") {
 		t.Error("Error message should contain error code")
 	}
 
-	if !contains(errMsg, "test_tool") {
+	if !strings.Contains(errMsg, "test_tool") {
 		t.Error("Error message should contain tool name")
 	}
 }

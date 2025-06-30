@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -519,7 +520,7 @@ func TestRepoContextMCPServer_ExecuteToolWithRecovery_CircuitBreakerOpen(t *test
 	}
 
 	// Error should mention circuit breaker
-	if !contains(err.Error(), "circuit breaker") {
+	if !strings.Contains(err.Error(), "circuit breaker") {
 		t.Error("Error message should mention circuit breaker")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -360,49 +361,23 @@ func (erm *ErrorRecoveryManager) extractErrorCode(err error) string {
 	}
 
 	// Check for common error patterns
-	if contains(errMsg, "query") {
+	if strings.Contains(errMsg, "query") {
 		return "query_error"
 	}
-	if contains(errMsg, "storage") || contains(errMsg, "database") {
+	if strings.Contains(errMsg, "storage") || strings.Contains(errMsg, "database") {
 		return "storage_error"
 	}
-	if contains(errMsg, "network") || contains(errMsg, "connection") {
+	if strings.Contains(errMsg, "network") || strings.Contains(errMsg, "connection") {
 		return "network_error"
 	}
-	if contains(errMsg, "timeout") {
+	if strings.Contains(errMsg, "timeout") {
 		return "timeout_error"
 	}
-	if contains(errMsg, "validation") {
+	if strings.Contains(errMsg, "validation") {
 		return "validation_error"
 	}
 
 	return "unknown_error"
-}
-
-// contains is a helper function to check if a string contains a substring
-func contains(str, substr string) bool {
-	return len(str) >= len(substr) && (str == substr ||
-		(len(str) > len(substr) &&
-			(str[:len(substr)] == substr ||
-				str[len(str)-len(substr):] == substr ||
-				findSubstring(str, substr))))
-}
-
-// findSubstring is a simple substring search helper
-func findSubstring(str, substr string) bool {
-	if substr == "" {
-		return true
-	}
-	if len(str) < len(substr) {
-		return false
-	}
-
-	for i := 0; i <= len(str)-len(substr); i++ {
-		if str[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // GetRecoveryStats returns statistics about error recovery
