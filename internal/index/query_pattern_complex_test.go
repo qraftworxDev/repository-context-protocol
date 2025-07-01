@@ -155,14 +155,19 @@ func TestQueryEngine_RegexCacheEfficiency(t *testing.T) {
 
 	pattern := `/^Handle.*User.*/`
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	// First search should compile the regex
-	results1, err := engine.SearchByPattern(pattern)
+	results1, err := engine.SearchByPatternWithOptions(pattern, options)
 	if err != nil {
 		t.Fatalf("First search failed: %v", err)
 	}
 
 	// Second search should use cached regex
-	results2, err := engine.SearchByPattern(pattern)
+	results2, err := engine.SearchByPatternWithOptions(pattern, options)
 	if err != nil {
 		t.Fatalf("Second search failed: %v", err)
 	}
@@ -214,14 +219,19 @@ func TestQueryEngine_RegexDelimiterHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
+
 			// Search with delimited pattern
-			delimitedResults, err := engine.SearchByPattern(tt.delimitedPattern)
+			delimitedResults, err := engine.SearchByPatternWithOptions(tt.delimitedPattern, options)
 			if err != nil {
 				t.Fatalf("Delimited pattern search failed: %v", err)
 			}
 
 			// Search with raw pattern
-			rawResults, err := engine.SearchByPattern(tt.rawPattern)
+			rawResults, err := engine.SearchByPatternWithOptions(tt.rawPattern, options)
 			if err != nil {
 				t.Fatalf("Raw pattern search failed: %v", err)
 			}

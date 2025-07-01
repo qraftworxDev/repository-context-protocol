@@ -210,7 +210,11 @@ func TestQueryEngine_AdvancedGlobPatternCombinations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := engine.SearchByPattern(tt.pattern)
+			// Enable types in search since many tests expect to find type names
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
+			results, err := engine.SearchByPatternWithOptions(tt.pattern, options)
 			if err != nil {
 				t.Fatalf("Failed to search by pattern '%s': %v", tt.pattern, err)
 			}
@@ -274,7 +278,11 @@ func TestQueryEngine_GlobPatternPerformance(t *testing.T) {
 
 	for _, pattern := range performancePatterns {
 		t.Run("performance_"+pattern, func(t *testing.T) {
-			results, err := engine.SearchByPattern(pattern)
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
+			results, err := engine.SearchByPatternWithOptions(pattern, options)
 			if err != nil {
 				t.Fatalf("Performance test failed for pattern '%s': %v", pattern, err)
 			}
@@ -332,7 +340,11 @@ func TestQueryEngine_GlobPatternCombinationEdgeCases(t *testing.T) {
 
 	for _, tt := range edgeCaseTests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := engine.SearchByPattern(tt.pattern)
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
+			results, err := engine.SearchByPatternWithOptions(tt.pattern, options)
 
 			if tt.expectError {
 				if err == nil {

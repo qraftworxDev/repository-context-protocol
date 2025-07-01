@@ -266,7 +266,11 @@ type PatternTest struct {
 func verifyPatternMatchesHelper(t *testing.T, engine *QueryEngine, tests []PatternTest) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := engine.SearchByPattern(tt.pattern)
+			// Enable types in search since many tests expect to find type names
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
+			results, err := engine.SearchByPatternWithOptions(tt.pattern, options)
 			if err != nil {
 				t.Fatalf("Failed to search by pattern '%s': %v", tt.pattern, err)
 			}

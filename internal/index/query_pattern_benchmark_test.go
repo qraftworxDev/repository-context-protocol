@@ -32,11 +32,16 @@ func BenchmarkQueryEngine_BasicPatternMatching(b *testing.B) {
 		{"complex_glob", "*{User,Payment}[DV]*"},
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, p := range patterns {
 		b.Run(p.name, func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				results, err := engine.SearchByPattern(p.pattern)
+				results, err := engine.SearchByPatternWithOptions(p.pattern, options)
 				if err != nil {
 					b.Fatalf("Search failed: %v", err)
 				}
@@ -71,11 +76,16 @@ func BenchmarkQueryEngine_RegexPatternMatching(b *testing.B) {
 		{"unicode_categories", "/\\p{Lu}\\p{Ll}+/"},
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, p := range regexPatterns {
 		b.Run(p.name, func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				results, err := engine.SearchByPattern(p.pattern)
+				results, err := engine.SearchByPatternWithOptions(p.pattern, options)
 				if err != nil {
 					b.Fatalf("Regex search failed: %v", err)
 				}
@@ -108,11 +118,16 @@ func BenchmarkQueryEngine_LargeDatasetPerformance(b *testing.B) {
 		{"multiple_conditions", "*Data*{Model,Client,Handler}*"},
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, p := range datasetPatterns {
 		b.Run(p.name, func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				results, err := engine.SearchByPattern(p.pattern)
+				results, err := engine.SearchByPatternWithOptions(p.pattern, options)
 				if err != nil {
 					b.Fatalf("Large dataset search failed: %v", err)
 				}
@@ -143,6 +158,11 @@ func BenchmarkQueryEngine_ConcurrentPatternMatching(b *testing.B) {
 
 	concurrencyLevels := []int{1, 2, 4, 8, 16}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, concurrency := range concurrencyLevels {
 		b.Run(fmt.Sprintf("concurrency_%d", concurrency), func(b *testing.B) {
 			b.ResetTimer()
@@ -154,7 +174,7 @@ func BenchmarkQueryEngine_ConcurrentPatternMatching(b *testing.B) {
 					go func(patternIndex int) {
 						defer wg.Done()
 						pattern := patterns[patternIndex%len(patterns)]
-						results, err := engine.SearchByPattern(pattern)
+						results, err := engine.SearchByPatternWithOptions(pattern, options)
 						if err != nil {
 							b.Errorf("Concurrent search failed: %v", err)
 						}
@@ -185,13 +205,18 @@ func BenchmarkQueryEngine_RegexCachePerformance(b *testing.B) {
 		"/(?i)(?:json|xml|http|api|db|sql).*(?:parser|client|handler|service)/",
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	// Test cold cache performance (first time compilation)
 	b.Run("cold_cache", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Create new engine to ensure cold cache
 			freshEngine := NewQueryEngine(storage)
 			pattern := complexPatterns[i%len(complexPatterns)]
-			results, err := freshEngine.SearchByPattern(pattern)
+			results, err := freshEngine.SearchByPatternWithOptions(pattern, options)
 			if err != nil {
 				b.Fatalf("Cold cache search failed: %v", err)
 			}
@@ -203,13 +228,13 @@ func BenchmarkQueryEngine_RegexCachePerformance(b *testing.B) {
 	b.Run("warm_cache", func(b *testing.B) {
 		// Pre-warm the cache
 		for _, pattern := range complexPatterns {
-			_, _ = engine.SearchByPattern(pattern)
+			_, _ = engine.SearchByPatternWithOptions(pattern, options)
 		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			pattern := complexPatterns[i%len(complexPatterns)]
-			results, err := engine.SearchByPattern(pattern)
+			results, err := engine.SearchByPatternWithOptions(pattern, options)
 			if err != nil {
 				b.Fatalf("Warm cache search failed: %v", err)
 			}
@@ -266,12 +291,17 @@ func BenchmarkQueryEngine_PatternComplexity(b *testing.B) {
 		},
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, level := range complexityLevels {
 		b.Run(level.name, func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				pattern := level.patterns[i%len(level.patterns)]
-				results, err := engine.SearchByPattern(pattern)
+				results, err := engine.SearchByPatternWithOptions(pattern, options)
 				if err != nil {
 					b.Fatalf("Pattern search failed: %v", err)
 				}
@@ -299,11 +329,16 @@ func BenchmarkQueryEngine_MemoryEfficiency(b *testing.B) {
 		"*[0-9]*",       // Medium result count
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, pattern := range patterns {
 		b.Run(fmt.Sprintf("pattern_%s", pattern), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				results, err := engine.SearchByPattern(pattern)
+				results, err := engine.SearchByPatternWithOptions(pattern, options)
 				if err != nil {
 					b.Fatalf("Memory efficiency test failed: %v", err)
 				}
@@ -332,10 +367,15 @@ func BenchmarkQueryEngine_ScalabilityTest(b *testing.B) {
 
 			engine := NewQueryEngine(storage)
 
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				// Use a pattern that will scale with data size
-				results, err := engine.SearchByPattern("*Request*")
+				results, err := engine.SearchByPatternWithOptions("*Request*", options)
 				if err != nil {
 					b.Fatalf("Scalability test failed: %v", err)
 				}
@@ -367,11 +407,16 @@ func BenchmarkQueryEngine_PatternTypeComparison(b *testing.B) {
 		{"regex_complex", "/(Handle|Process).*(User|Payment)/", "regex"},
 	}
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	for _, pt := range patternTypes {
 		b.Run(fmt.Sprintf("%s_%s", pt.ptype, pt.name), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				results, err := engine.SearchByPattern(pt.pattern)
+				results, err := engine.SearchByPatternWithOptions(pt.pattern, options)
 				if err != nil {
 					b.Fatalf("Pattern type comparison failed: %v", err)
 				}

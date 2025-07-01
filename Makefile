@@ -39,9 +39,9 @@ build: ## Build binaries
 test: ## Run unit tests
 	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
 		echo "Running non-MCP tests in parallel..."; \
-		go test -v -race $$(go list ./... | grep -v '/internal/mcp$$'); \
+		go test -v -race $$(go list ./... | grep -v '/internal/mcp$$') || exit 1; \
 		echo "Running MCP tests sequentially (to avoid SQLite database locks)..."; \
-		go test -v -race -p 1 ./internal/mcp; \
+		go test -v -race -p 1 ./internal/mcp || exit 1; \
 	else \
 		echo "No Go files found, skipping tests"; \
 	fi
@@ -60,7 +60,7 @@ test-parallel: ## Run all tests in parallel (may cause SQLite locks in MCP tests
 coverage: ## Run tests with coverage
 	@if find . -name "*.go" -not -path "./vendor/*" | grep -q .; then \
 		echo "Running coverage tests (MCP tests sequentially to avoid SQLite locks)..."; \
-		go test -v -race -coverprofile=coverage.out -p 1 ./...; \
+		go test -v -race -coverprofile=coverage.out -p 1 ./... || exit 1; \
 		go tool cover -html=coverage.out -o coverage.html; \
 		go tool cover -func=coverage.out | tail -1; \
 	else \
