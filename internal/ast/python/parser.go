@@ -421,12 +421,25 @@ func (p *PythonParser) convertConstants(pythonConsts []PythonVariableInfo) []mod
 
 // convertImports converts Python import info to Go models
 func (p *PythonParser) convertImports(pythonImports []PythonImportInfo) []models.Import {
-	imports := make([]models.Import, len(pythonImports))
+	var imports []models.Import
 
-	for i, pImport := range pythonImports {
-		imports[i] = models.Import{
-			Path:  pImport.Path,
-			Alias: pImport.Alias,
+	for _, pImport := range pythonImports {
+		if len(pImport.Items) > 0 && !pImport.IsStarImport {
+			// For "from module import item1, item2", create separate records for each item
+			for _, item := range pImport.Items {
+				// Create path as "module.item" to show what's actually available in namespace
+				importPath := pImport.Path + "." + item
+				imports = append(imports, models.Import{
+					Path:  importPath,
+					Alias: pImport.Alias, // Only the last item can have an alias in "from x import y as z"
+				})
+			}
+		} else {
+			// For "import module" or "from module import *", use the module path directly
+			imports = append(imports, models.Import{
+				Path:  pImport.Path,
+				Alias: pImport.Alias,
+			})
 		}
 	}
 

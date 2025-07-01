@@ -3,6 +3,7 @@ package python
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,8 +219,8 @@ class Profile:
 	if len(fileContext.Imports) != 1 {
 		t.Errorf("Expected 1 import, got %d", len(fileContext.Imports))
 	}
-	if len(fileContext.Imports) > 0 && fileContext.Imports[0].Path != "typing" {
-		t.Errorf("Expected import 'typing', got %s", fileContext.Imports[0].Path)
+	if len(fileContext.Imports) > 0 && fileContext.Imports[0].Path != "typing.Optional" {
+		t.Errorf("Expected import 'typing.Optional', got %s", fileContext.Imports[0].Path)
 	}
 }
 
@@ -534,25 +535,29 @@ def example_function():
 		t.Errorf("Expected alias 'dt' for datetime, got '%s'", imp.Alias)
 	}
 
-	// Test from imports
-	typingFound := false
-	pathlibFound := false
+	// Test from imports - should now show module.item format
+	typingImportsFound := []string{}
+	pathFound := false
 	for _, imp := range fileContext.Imports {
-		if imp.Path == "typing" {
-			typingFound = true
+		// Check for typing imports (typing.List, typing.Dict, etc.)
+		importPaths := []string{"typing.List", "typing.Dict", "typing.Optional", "typing.Union", "typing.Any"}
+		if slices.Contains(importPaths, imp.Path) {
+			typingImportsFound = append(typingImportsFound, imp.Path)
 			t.Logf("Found typing import: %+v", imp)
 		}
-		if imp.Path == "pathlib" {
-			pathlibFound = true
+		if imp.Path == "pathlib.Path" {
+			pathFound = true
 			t.Logf("Found pathlib import: %+v", imp)
 		}
 	}
 
-	if !typingFound {
-		t.Error("Expected to find 'from typing import ...'")
+	if len(typingImportsFound) == 0 {
+		t.Error("Expected to find typing imports (typing.List, typing.Dict, etc.)")
+	} else {
+		t.Logf("Found %d typing imports: %v", len(typingImportsFound), typingImportsFound)
 	}
-	if !pathlibFound {
-		t.Error("Expected to find 'from pathlib import Path'")
+	if !pathFound {
+		t.Error("Expected to find 'pathlib.Path' import")
 	}
 
 	// Test relative imports
@@ -1194,6 +1199,96 @@ result: dict = {"status": "ok"}`
 				constant.Name, constant.StartLine, constant.EndLine)
 		}
 	}
+}
+
+// TestPythonParser_SpecificImportBugFix tests the specific bug mentioned in the issue:
+// "from typing import Dict returns just 'typing'" should now return "Dict"
+func TestPythonParser_SpecificImportBugFix(t *testing.T) {
+	parser := NewPythonParser()
+
+	// This is the exact scenario from the bug report
+	code := `#!/usr/bin/env python3
+"""Test the specific import bug fix."""
+
+from typing import Dict
+
+def example_func(data: Dict[str, int]) -> None:
+    pass
+`
+
+	fileContext, err := parser.ParseFile("import_bug_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Should have exactly 1 import
+	if len(fileContext.Imports) != 1 {
+		t.Fatalf("Expected 1 import, got %d", len(fileContext.Imports))
+	}
+
+	importItem := fileContext.Imports[0]
+
+	// The bug was that this would return "typing" instead of "typing.Dict"
+	if importItem.Path != "typing.Dict" {
+		t.Errorf("Expected import path 'typing.Dict', got '%s'", importItem.Path)
+	}
+
+	// Should have no alias for direct imports
+	if importItem.Alias != "" {
+		t.Errorf("Expected no alias for Dict import, got '%s'", importItem.Alias)
+	}
+
+	t.Logf("✅ Bug fix verified: 'from typing import Dict' correctly returns path='typing.Dict'")
+}
+
+// TestPythonParser_MultipleFromImports tests multiple imports from the same module
+func TestPythonParser_MultipleFromImports(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `#!/usr/bin/env python3
+"""Test multiple imports from same module."""
+
+from typing import Dict, List, Optional
+from collections import defaultdict, Counter
+`
+
+	fileContext, err := parser.ParseFile("multi_import_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Should have 5 imports total: Dict, List, Optional, defaultdict, Counter
+	if len(fileContext.Imports) != 5 {
+		t.Fatalf("Expected 5 imports, got %d", len(fileContext.Imports))
+	}
+
+	// Create a set of expected import paths (now in module.item format)
+	expectedPaths := map[string]bool{
+		"typing.Dict":             false,
+		"typing.List":             false,
+		"typing.Optional":         false,
+		"collections.defaultdict": false,
+		"collections.Counter":     false,
+	}
+
+	// Check that all expected imports are present
+	for _, importItem := range fileContext.Imports {
+		if _, exists := expectedPaths[importItem.Path]; exists {
+			expectedPaths[importItem.Path] = true
+			t.Logf("Found expected import: %s", importItem.Path)
+		} else {
+			t.Errorf("Unexpected import path: %s", importItem.Path)
+		}
+	}
+
+	// Verify all expected imports were found
+	for path, found := range expectedPaths {
+		if !found {
+			t.Errorf("Expected import '%s' not found", path)
+		}
+	}
+
+	t.Logf("✅ Multiple from imports test passed")
 }
 
 // Helper function to find a function by name

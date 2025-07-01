@@ -251,18 +251,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 1. precommit integration
 1. testing with LLM - IN PROGRESS
 
-
-# Python bugs
-
-1. imports are incomplete
-from typing import Dict returns just "typing":
-```json
-  {
-    "path": "typing"
-  }
-```
-  should be Dict or Any, etc. as per the imported class/function/method/etc.
-
 # TODO:
 1. test the rest of the functionality using depth, tokens limits, and other search functionality.
    - tokens limit works
@@ -270,14 +258,7 @@ from typing import Dict returns just "typing":
 1. Test different outputs.
 1. Fix lookup issue - when using nested "repos" (e.g. there's a .repocontext folder at root and inside another folder) the product returns the data from the root folder's content
     likely related to the lookup initialising by first going to root, and then doing the query lookup against the .repocontext. Should recursively step up the chain of paths to find the first instance of the folder and default to root.
-1. Getting this warning at start up:
-```text
-Warning: Repository initialization failed: failed to initialize query engine: repository not initialized - .repocontext directory not found
-Server will continue with limited functionality
-{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{\n  \"path\": \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol\",\n  \"repo_context_path\": \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext\",\n  \"already_initialized\": false,\n  \"message\": \"Repository initialized successfully\",\n  \"created_directories\": [\n    \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext\",\n    \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext/chunks\"\n  ],\n  \"created_files\": [\n    \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext/manifest.json\"\n  ]\n}"}]}}
-```
-    need to look into this and resolve - it's expected that the directory not exist on first run
-1. return format needs to change. The output is "prettified" with \n and white space. This should be removed, it'll waste space. Need to see if it's stored like this - fix it at storage layer if yes.
+
 
 # MCP server testing
 ## Test tools systematically
