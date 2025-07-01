@@ -1058,6 +1058,87 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	t.Log("Multiple return type test completed successfully")
 }
 
+// TestPythonParser_ExportsKindField validates the Kind field for different types of Python exports
+func TestPythonParser_ExportsKindField(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `#!/usr/bin/env python3
+"""Test file for verifying export Kind fields."""
+
+# Global variables
+exported_var = "hello"
+_private_var = "private"
+
+# Constants
+EXPORTED_CONST = 42
+_PRIVATE_CONST = 24
+
+class ExportedClass:
+    """An exported class."""
+    def __init__(self):
+        pass
+
+class _PrivateClass:
+    """A private class."""
+    pass
+
+def exported_function():
+    """An exported function."""
+    return "hello"
+
+def _private_function():
+    """A private function."""
+    return "private"
+`
+
+	fileContext, err := parser.ParseFile("test_exports.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Check that we have exports
+	if len(fileContext.Exports) == 0 {
+		t.Fatal("Expected to find exports")
+	}
+
+	// Create a map of export names to their Kind values for easy lookup
+	exportKinds := make(map[string]string)
+	for _, export := range fileContext.Exports {
+		exportKinds[export.Name] = export.Kind
+		t.Logf("Export: %s, Type: %s, Kind: %s", export.Name, export.Type, export.Kind)
+	}
+
+	// Verify each type of export has the correct Kind
+	expectedExports := map[string]string{
+		"exported_function": "function",
+		"ExportedClass":     "type", // Classes should be mapped to "type"
+		"exported_var":      "variable",
+		"EXPORTED_CONST":    "constant",
+	}
+
+	for name, expectedKind := range expectedExports {
+		if actualKind, exists := exportKinds[name]; exists {
+			if actualKind != expectedKind {
+				t.Errorf("Export '%s': expected Kind '%s', got '%s'", name, expectedKind, actualKind)
+			} else {
+				t.Logf("✓ Export '%s' has correct Kind: '%s'", name, actualKind)
+			}
+		} else {
+			t.Errorf("Expected export '%s' not found", name)
+		}
+	}
+
+	// Verify private symbols are not exported
+	privateSymbols := []string{"_private_var", "_PRIVATE_CONST", "_PrivateClass", "_private_function"}
+	for _, privateName := range privateSymbols {
+		if _, exists := exportKinds[privateName]; exists {
+			t.Errorf("Private symbol '%s' should not be exported", privateName)
+		}
+	}
+
+	t.Logf("Export Kind field test completed successfully with %d exports", len(fileContext.Exports))
+}
+
 // Helper function to find a function by name
 func findFunction(functions []models.Function, name string) *models.Function {
 	for i := range functions {

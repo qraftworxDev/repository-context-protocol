@@ -253,20 +253,59 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 # Python bugs
-1. Function signature maps to go-based types, should stick to Python
+1. Variables line positions are always 0
+````
+..."variables": [
   {
-    "name": "extract",
-    "signature": "() -\u003e map[string]interface{}",
-    "parameters": null,
-    "returns": [
-      {
-        "name": "map[string]interface{}",
-        "kind": "builtin"
-      }
-    ],
-    "start_line": 32,
-    "end_line": 66
+    "name": "file_path",
+    "type": "str",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "file_path",
+    "type": "Any",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "source_code",
+    "type": "Any",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "source_code",
+    "type": "Any",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "extractor",
+    "type": "Any",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "result",
+    "type": "Any",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "error_result",
+    "type": "dict",
+    "start_line": 0,
+    "end_line": 0
+  },
+  {
+    "name": "error_result",
+    "type": "dict",
+    "start_line": 0,
+    "end_line": 0
   }
+]...
+  ```
 1. --include-callers and --include-callees don't seem to have any effect. Could be broken.
 1. "kind" is empty in exports
   {

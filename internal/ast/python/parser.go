@@ -434,10 +434,18 @@ func (p *PythonParser) convertExports(pythonExports []PythonExportInfo) []models
 	exports := make([]models.Export, len(pythonExports))
 
 	for i, pExport := range pythonExports {
-		exports[i] = models.Export{
+		export := models.Export{
 			Name: pExport.Name,
 			Type: pExport.Type,
 		}
+
+		if pExport.Type == "class" {
+			export.Kind = "type"
+		} else {
+			export.Kind = pExport.Type
+		}
+
+		exports[i] = export
 	}
 
 	return exports
