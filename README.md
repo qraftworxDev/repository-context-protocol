@@ -251,9 +251,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 1. precommit integration
 1. testing with LLM - IN PROGRESS
 
-# Go bugs
-1. repocontext query --entity-type function --include-types
-    - doesn't differ from "repocontext query --entity-type function" (OR repocontext query --search "Run*")
 
 # Python bugs
 1. Function signature maps to go-based types, should stick to Python
