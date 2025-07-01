@@ -125,14 +125,14 @@ def complex_generic_function(
 		expectedType string
 		description  string
 	}{
-		{"data_bytes", "[]byte", "bytes should map to []byte"},
-		{"data_bytearray", "[]byte", "bytearray should map to []byte"},
-		{"numbers_set", "map[interface{}]struct{}", "set should map to map[interface{}]struct{}"},
-		{"frozen_nums", "map[interface{}]struct{}", "frozenset should map to map[interface{}]struct{}"},
-		{"coordinates", "[]interface{}", "tuple should map to []interface{}"},
-		{"none_value", "nil", "None should map to nil"},
-		{"any_value", "interface{}", "Any should map to interface{}"},
-		{"complex_num", "complex128", "complex should map to complex128"},
+		{"data_bytes", "bytes", "bytes should stay as bytes"},
+		{"data_bytearray", "bytearray", "bytearray should stay as bytearray"},
+		{"numbers_set", "set", "set should stay as set"},
+		{"frozen_nums", "frozenset", "frozenset should stay as frozenset"},
+		{"coordinates", "tuple", "tuple should stay as tuple"},
+		{"none_value", "None", "None should stay as None"},
+		{"any_value", "Any", "Any should stay as Any"},
+		{"complex_num", "complex", "complex should stay as complex"},
 	}
 
 	// Check variables with enhanced type mapping
@@ -161,13 +161,13 @@ def complex_generic_function(
 		expectedType string
 		description  string
 	}{
-		{"string_set", "map[string]struct{}", "Set[str] should map to map[string]struct{}"},
-		{"int_frozenset", "map[int]struct{}", "FrozenSet[int] should map to map[int]struct{}"},
-		{"typed_tuple", "[]interface{}", "Tuple[str, int, bool] should map to []interface{}"},
-		{"single_tuple", "[]string", "Tuple[str] should map to []string"},
-		{"optional_bytes", "*[]byte", "Optional[bytes] should map to *[]byte"},
-		{"union_types", "interface{}", "Union types should map to interface{}"},
-		{"nested_dict", "map[string][]map[int]struct{}", "Complex nested types should be parsed"},
+		{"string_set", "Set[str]", "Set[str] should stay as Set[str]"},
+		{"int_frozenset", "FrozenSet[int]", "FrozenSet[int] should stay as FrozenSet[int]"},
+		{"typed_tuple", "Tuple[str, int, bool]", "Tuple[str, int, bool] should stay as Tuple[str, int, bool]"},
+		{"single_tuple", "Tuple[str]", "Tuple[str] should stay as Tuple[str]"},
+		{"optional_bytes", "Optional[bytes]", "Optional[bytes] should stay as Optional[bytes]"},
+		{"union_types", "Union[str, int, bytes]", "Union types should stay as Union[str, int, bytes]"},
+		{"nested_dict", "Dict[str, List[Set[int]]]", "Complex nested types should stay as Dict[str, List[Set[int]]]"},
 	}
 
 	for _, tc := range genericTestCases {
@@ -181,8 +181,8 @@ def complex_generic_function(
 				t.Logf("Found %s with type: %s (expected: %s)", tc.varName, variable.Type, tc.expectedType)
 				// For complex generic types, we'll be more lenient in exact matching
 				// but verify the core mapping is working
-				if tc.varName == "string_set" && !contains(variable.Type, "string") {
-					t.Errorf("%s: expected to contain 'string', got %s", tc.description, variable.Type)
+				if tc.varName == "string_set" && !contains(variable.Type, "str") {
+					t.Errorf("%s: expected to contain 'str', got %s", tc.description, variable.Type)
 				}
 				if tc.varName == "int_frozenset" && !contains(variable.Type, "int") {
 					t.Errorf("%s: expected to contain 'int', got %s", tc.description, variable.Type)
@@ -209,11 +209,11 @@ def complex_generic_function(
 		expectedType string
 		description  string
 	}{
-		{"data", "[]byte", "bytes parameter should map to []byte"},
-		{"numbers", "map[int]struct{}", "Set[int] parameter should map to map[int]struct{}"},
-		{"mapping", "map[string]interface{}", "Complex Dict parameter should be parsed"},
-		{"optional_tuple", "*[]interface{}", "Optional[Tuple[...]] should map to pointer type"},
-		{"callback", "func()", "Callable should map to func()"},
+		{"data", "bytes", "bytes parameter should stay as bytes"},
+		{"numbers", "Set[int]", "Set[int] parameter should stay as Set[int]"},
+		{"mapping", "Dict[str, Union[bytes, Set[str]]]", "Complex Dict parameter should stay as Dict[str, Union[bytes, Set[str]]]"},
+		{"optional_tuple", "Optional[Tuple[str, int]]", "Optional[Tuple[...]] should stay as Optional[Tuple[str, int]]"},
+		{"callback", "Callable[[bytes], Set[str]]", "Callable should stay as Callable[[bytes], Set[str]]"},
 	}
 
 	for _, tc := range functionParamTests {
@@ -224,7 +224,7 @@ def complex_generic_function(
 					found = true
 					t.Logf("Found parameter %s with type: %s", tc.paramName, param.Type)
 					// For complex types, check that key components are present
-					if tc.paramName == "data" && param.Type != "[]byte" {
+					if tc.paramName == "data" && param.Type != "bytes" {
 						t.Errorf("%s: expected %s, got %s", tc.description, tc.expectedType, param.Type)
 					}
 					break
@@ -255,8 +255,8 @@ def complex_generic_function(
 		t.Logf("Method parameters: key=%s (type: %s), data=%s (type: %s)",
 			keyParam.Name, keyParam.Type, dataParam.Name, dataParam.Type)
 
-		if dataParam.Name == "data" && dataParam.Type != "[]byte" {
-			t.Logf("Note: data parameter type is %s, expected []byte (may need extractor enhancement)", dataParam.Type)
+		if dataParam.Name == "data" && dataParam.Type != "bytes" {
+			t.Logf("Note: data parameter type is %s, expected bytes (may need extractor enhancement)", dataParam.Type)
 		}
 	}
 

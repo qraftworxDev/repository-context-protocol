@@ -133,9 +133,21 @@ class PythonASTExtractor(ast.NodeVisitor):
 
         # Handle *args and **kwargs
         if node.args.vararg:
-            parameters.append({"name": f"*{node.args.vararg.arg}", "type": "tuple"})
+            # *args should be typed as a tuple of the annotation or Any
+            vararg_type = "tuple"
+            if node.args.vararg.annotation:
+                vararg_type = self._normalize_type(
+                    ast.unparse(node.args.vararg.annotation)
+                )
+            parameters.append({"name": f"*{node.args.vararg.arg}", "type": vararg_type})
         if node.args.kwarg:
-            parameters.append({"name": f"**{node.args.kwarg.arg}", "type": "dict"})
+            # **kwargs should be typed as a dict of the annotation or Any
+            kwarg_type = "dict"
+            if node.args.kwarg.annotation:
+                kwarg_type = self._normalize_type(
+                    ast.unparse(node.args.kwarg.annotation)
+                )
+            parameters.append({"name": f"**{node.args.kwarg.arg}", "type": kwarg_type})
 
         # Extract return type
         returns = []
@@ -386,67 +398,17 @@ class PythonASTExtractor(ast.NodeVisitor):
         return "Any"
 
     def _normalize_type(self, type_str: str) -> str:
-        """Normalize Python type annotations to Go-compatible types."""
+        """Normalize Python type annotations, keeping them as Python types."""
         # Handle None and NoneType
         if type_str in ("None", "NoneType"):
-            return "nil"
+            return "None"
 
         # Handle empty type annotation
         if not type_str or type_str.strip() == "":
-            return "interface{}"
+            return "Any"
 
         # Strip whitespace
         type_str = type_str.strip()
-
-        # Basic type mapping
-        type_mapping = {
-            # Basic types
-            "int": "int",
-            "float": "float64",
-            "str": "string",
-            "bool": "bool",
-            "bytes": "[]byte",
-            "bytearray": "[]byte",
-            "complex": "complex128",
-            # Collection types
-            "list": "[]interface{}",
-            "dict": "map[string]interface{}",
-            "set": "map[interface{}]struct{}",
-            "frozenset": "map[interface{}]struct{}",
-            "tuple": "[]interface{}",
-            # Typing module types
-            "List": "[]interface{}",
-            "Dict": "map[string]interface{}",
-            "Set": "map[interface{}]struct{}",
-            "FrozenSet": "map[interface{}]struct{}",
-            "Tuple": "[]interface{}",
-            "Optional": "*interface{}",
-            "Union": "interface{}",
-            "Any": "interface{}",
-            "Callable": "func()",
-            "Iterable": "[]interface{}",
-            "Iterator": "[]interface{}",
-            "Generator": "[]interface{}",
-            "Coroutine": "interface{}",
-            "Awaitable": "interface{}",
-            # Special types
-            "object": "interface{}",
-            "type": "reflect.Type",
-            "slice": "[]interface{}",
-            "range": "[]int",
-            "enumerate": "[]interface{}",
-            "zip": "[]interface{}",
-            "filter": "[]interface{}",
-            "map": "[]interface{}",
-        }
-
-        # Check for exact matches first
-        if type_str in type_mapping:
-            return type_mapping[type_str]
-
-        # Handle generic types with parameters
-        if "[" in type_str and "]" in type_str:
-            return self._parse_generic_type(type_str, type_mapping)
 
         # Handle forward references (quoted types)
         if type_str.startswith('"') and type_str.endswith('"'):
@@ -455,16 +417,16 @@ class PythonASTExtractor(ast.NodeVisitor):
         if type_str.startswith("'") and type_str.endswith("'"):
             return self._normalize_type(type_str[1:-1])
 
-        # Handle simple prefix matches for backwards compatibility
-        for python_type, go_type in type_mapping.items():
-            if type_str.startswith(python_type):
-                return go_type
+        # For Python types, we want to keep them as-is, just clean them up
+        # Handle generic types with parameters
+        if "[" in type_str and "]" in type_str:
+            return self._parse_generic_type_python(type_str)
 
-        # If no mapping found, return the original type
+        # Return the type as-is for Python
         return type_str
 
-    def _parse_generic_type(self, type_str: str, type_mapping: Dict[str, str]) -> str:
-        """Parse generic type annotations like List[str], Dict[str, int], etc."""
+    def _parse_generic_type_python(self, type_str: str) -> str:
+        """Parse generic type annotations keeping them as Python types."""
         try:
             # Find the base type and parameters
             bracket_start = type_str.find("[")
@@ -478,76 +440,18 @@ class PythonASTExtractor(ast.NodeVisitor):
 
             # Handle empty parameters
             if not params_str:
-                return type_mapping.get(base_type, type_str)
+                return base_type
 
             # Parse parameters (handle nested brackets)
             params = self._parse_type_parameters(params_str)
 
-            # Map based on base type
-            if base_type in ("List", "list"):
-                if params:
-                    element_type = self._normalize_type(params[0])
-                    return f"[]{element_type}"
-                return "[]interface{}"
+            # Recursively normalize parameters while keeping Python syntax
+            normalized_params = []
+            for param in params:
+                normalized_params.append(self._normalize_type(param))
 
-            elif base_type in ("Dict", "dict"):
-                if len(params) >= 2:
-                    key_type = self._normalize_type(params[0])
-                    value_type = self._normalize_type(params[1])
-                    return f"map[{key_type}]{value_type}"
-                elif len(params) == 1:
-                    key_type = self._normalize_type(params[0])
-                    return f"map[{key_type}]interface{{}}"
-                return "map[string]interface{}"
-
-            elif base_type in ("Set", "set"):
-                if params:
-                    element_type = self._normalize_type(params[0])
-                    return f"map[{element_type}]struct{{}}"
-                return "map[interface{}]struct{}"
-
-            elif base_type in ("FrozenSet", "frozenset"):
-                if params:
-                    element_type = self._normalize_type(params[0])
-                    return f"map[{element_type}]struct{{}}"
-                return "map[interface{}]struct{}"
-
-            elif base_type in ("Tuple", "tuple"):
-                if params:
-                    # For tuple with specific types, use array-like syntax
-                    if len(params) == 1:
-                        element_type = self._normalize_type(params[0])
-                        return f"[]{element_type}"
-                    else:
-                        # Multiple types - use interface{} or struct
-                        return "[]interface{}"
-                return "[]interface{}"
-
-            elif base_type == "Optional":
-                if params:
-                    inner_type = self._normalize_type(params[0])
-                    # Make it a pointer type
-                    if inner_type == "interface{}":
-                        return "*interface{}"
-                    elif inner_type.startswith("*"):
-                        return inner_type  # Already a pointer
-                    else:
-                        return f"*{inner_type}"
-                return "*interface{}"
-
-            elif base_type == "Union":
-                # Union types become interface{} in Go
-                return "interface{}"
-
-            elif base_type == "Callable":
-                # Parse function signature if possible
-                if params:
-                    return "func()"  # Simplified for now
-                return "func()"
-
-            else:
-                # Unknown generic type, return as-is or with interface{}
-                return type_mapping.get(base_type, type_str)
+            # Reconstruct the type with normalized parameters
+            return f"{base_type}[{', '.join(normalized_params)}]"
 
         except Exception:
             # If parsing fails, return the original string

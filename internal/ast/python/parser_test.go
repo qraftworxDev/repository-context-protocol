@@ -103,8 +103,8 @@ def process_user_data(name: str, email: str, age: int = 18) -> dict:
 		if len(formatFunc.Parameters) > 0 && formatFunc.Parameters[0].Name != "name" {
 			t.Errorf("Expected parameter name 'name', got %s", formatFunc.Parameters[0].Name)
 		}
-		if len(formatFunc.Parameters) > 0 && formatFunc.Parameters[0].Type != "string" {
-			t.Errorf("Expected parameter type 'string', got %s", formatFunc.Parameters[0].Type)
+		if len(formatFunc.Parameters) > 0 && formatFunc.Parameters[0].Type != "str" {
+			t.Errorf("Expected parameter type 'str', got %s", formatFunc.Parameters[0].Type)
 		}
 	}
 
@@ -363,8 +363,8 @@ class DataProcessor:
 		if itemsParam.Name != "items" {
 			t.Errorf("Expected parameter name 'items', got %s", itemsParam.Name)
 		}
-		// Should map List[str] to Go-compatible type
-		if itemsParam.Type != "[]interface{}" && itemsParam.Type != "List[str]" {
+		// Should keep List[str] as Python type
+		if itemsParam.Type != "List[str]" {
 			t.Logf("Parameter 'items' has type: %s", itemsParam.Type)
 		}
 	}
@@ -374,8 +374,8 @@ class DataProcessor:
 		if optionsParam.Name != "options" {
 			t.Errorf("Expected parameter name 'options', got %s", optionsParam.Name)
 		}
-		// Should handle Dict[str, bool] type
-		if optionsParam.Type != "map[string]interface{}" && optionsParam.Type != "Dict[str, bool]" {
+		// Should keep Dict[str, bool] as Python type
+		if optionsParam.Type != "Dict[str, bool]" {
 			t.Logf("Parameter 'options' has type: %s", optionsParam.Type)
 		}
 	}
