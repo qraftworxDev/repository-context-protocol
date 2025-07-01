@@ -1139,6 +1139,63 @@ def _private_function():
 	t.Logf("Export Kind field test completed successfully with %d exports", len(fileContext.Exports))
 }
 
+// TestPythonParser_VariableLinePositions validates the line positions for Python variables and constants
+func TestPythonParser_VariableLinePositions(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `# Line 1: comment
+file_path = "test.txt"
+source_code = "print('hello')"
+MAX_RETRIES = 5
+extractor: str = "python"
+result: dict = {"status": "ok"}`
+
+	fileContext, err := parser.ParseFile("variables.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Debug: Print all variables found
+	t.Logf("Found %d variables:", len(fileContext.Variables))
+	for _, variable := range fileContext.Variables {
+		t.Logf("  Variable: %s, Type: %s, StartLine: %d, EndLine: %d",
+			variable.Name, variable.Type, variable.StartLine, variable.EndLine)
+	}
+
+	t.Logf("Found %d constants:", len(fileContext.Constants))
+	for _, constant := range fileContext.Constants {
+		t.Logf("  Constant: %s, Type: %s, StartLine: %d, EndLine: %d",
+			constant.Name, constant.Type, constant.StartLine, constant.EndLine)
+	}
+
+	// Basic checks that line numbers are not zero
+	for _, variable := range fileContext.Variables {
+		if variable.StartLine == 0 {
+			t.Errorf("Variable '%s' should have non-zero StartLine, got %d", variable.Name, variable.StartLine)
+		}
+		if variable.EndLine == 0 {
+			t.Errorf("Variable '%s' should have non-zero EndLine, got %d", variable.Name, variable.EndLine)
+		}
+		if variable.StartLine != variable.EndLine {
+			t.Errorf("Variable '%s' should have same StartLine and EndLine for single-line declaration, got StartLine=%d, EndLine=%d",
+				variable.Name, variable.StartLine, variable.EndLine)
+		}
+	}
+
+	for _, constant := range fileContext.Constants {
+		if constant.StartLine == 0 {
+			t.Errorf("Constant '%s' should have non-zero StartLine, got %d", constant.Name, constant.StartLine)
+		}
+		if constant.EndLine == 0 {
+			t.Errorf("Constant '%s' should have non-zero EndLine, got %d", constant.Name, constant.EndLine)
+		}
+		if constant.StartLine != constant.EndLine {
+			t.Errorf("Constant '%s' should have same StartLine and EndLine for single-line declaration, got StartLine=%d, EndLine=%d",
+				constant.Name, constant.StartLine, constant.EndLine)
+		}
+	}
+}
+
 // Helper function to find a function by name
 func findFunction(functions []models.Function, name string) *models.Function {
 	for i := range functions {

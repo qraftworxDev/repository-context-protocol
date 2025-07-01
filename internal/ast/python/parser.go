@@ -393,8 +393,10 @@ func (p *PythonParser) convertVariables(pythonVars []PythonVariableInfo) []model
 
 	for i, pVar := range pythonVars {
 		variables[i] = models.Variable{
-			Name: pVar.Name,
-			Type: pVar.Type,
+			Name:      pVar.Name,
+			Type:      pVar.Type,
+			StartLine: pVar.Line,
+			EndLine:   pVar.Line,
 		}
 	}
 
@@ -407,8 +409,10 @@ func (p *PythonParser) convertConstants(pythonConsts []PythonVariableInfo) []mod
 
 	for i, pConst := range pythonConsts {
 		constants[i] = models.Constant{
-			Name: pConst.Name,
-			Type: pConst.Type,
+			Name:      pConst.Name,
+			Type:      pConst.Type,
+			StartLine: pConst.Line,
+			EndLine:   pConst.Line,
 		}
 	}
 

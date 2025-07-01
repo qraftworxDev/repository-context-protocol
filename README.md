@@ -253,71 +253,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 # Python bugs
-1. Variables line positions are always 0
-````
-..."variables": [
-  {
-    "name": "file_path",
-    "type": "str",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "file_path",
-    "type": "Any",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "source_code",
-    "type": "Any",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "source_code",
-    "type": "Any",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "extractor",
-    "type": "Any",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "result",
-    "type": "Any",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "error_result",
-    "type": "dict",
-    "start_line": 0,
-    "end_line": 0
-  },
-  {
-    "name": "error_result",
-    "type": "dict",
-    "start_line": 0,
-    "end_line": 0
-  }
-]...
-  ```
-1. --include-callers and --include-callees don't seem to have any effect. Could be broken.
-1. "kind" is empty in exports
-  {
-    "name": "PythonASTExtractor",
-    "type": "class",
-    "kind": ""
-  }
+
 1. imports are incomplete
+from typing import Dict returns just "typing":
+```json
   {
     "path": "typing"
   }
-  should be Dict or Any, etc. as per the file content
+```
+  should be Dict or Any, etc. as per the imported class/function/method/etc.
 
 # TODO:
 1. test the rest of the functionality using depth, tokens limits, and other search functionality.
