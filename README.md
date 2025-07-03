@@ -251,10 +251,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 1. precommit integration
 1. testing with LLM - IN PROGRESS
 
+# Python bugs
+1. local calls or called by should be checked
+1. what's the difference between local_calls and local_callers and cross_file_calls and cross_file_callers and called_by and calls
+
 # TODO:
+1. Files that are removed should be removed from the index too.
 1. test the rest of the functionality using depth, tokens limits, and other search functionality.
    - tokens limit works
-   -
 1. Test different outputs.
 1. Fix lookup issue - when using nested "repos" (e.g. there's a .repocontext folder at root and inside another folder) the product returns the data from the root folder's content
     likely related to the lookup initialising by first going to root, and then doing the query lookup against the .repocontext. Should recursively step up the chain of paths to find the first instance of the folder and default to root.

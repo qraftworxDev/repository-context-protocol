@@ -1291,6 +1291,79 @@ from collections import defaultdict, Counter
 	t.Logf("✅ Multiple from imports test passed")
 }
 
+// TestPythonParser_ClassSignatureWithInheritance tests that class signatures include inheritance info
+func TestPythonParser_ClassSignatureWithInheritance(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `#!/usr/bin/env python3
+"""Test class signatures with inheritance."""
+
+import ast
+
+class SimpleClass:
+    """A class with no inheritance."""
+    pass
+
+class PythonASTExtractor(ast.NodeVisitor):
+    """A class that inherits from ast.NodeVisitor."""
+
+    def __init__(self):
+        super().__init__()
+
+    def extract(self):
+        return {}
+
+class MultipleInheritance(BaseClass1, BaseClass2):
+    """A class with multiple inheritance."""
+    pass
+`
+
+	fileContext, err := parser.ParseFile("signature_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Should have 3 classes
+	if len(fileContext.Types) != 3 {
+		t.Fatalf("Expected 3 classes, got %d", len(fileContext.Types))
+	}
+
+	// Check SimpleClass (no inheritance)
+	simpleClass := findType(fileContext.Types, "SimpleClass")
+	if simpleClass == nil {
+		t.Fatal("Expected to find SimpleClass")
+	}
+	if len(simpleClass.Embedded) != 0 {
+		t.Errorf("SimpleClass should have no inheritance, got: %v", simpleClass.Embedded)
+	}
+
+	// Check PythonASTExtractor (single inheritance)
+	extractorClass := findType(fileContext.Types, "PythonASTExtractor")
+	if extractorClass == nil {
+		t.Fatal("Expected to find PythonASTExtractor")
+	}
+	if len(extractorClass.Embedded) != 1 {
+		t.Errorf("PythonASTExtractor should have 1 base class, got: %v", extractorClass.Embedded)
+	}
+	if len(extractorClass.Embedded) > 0 && extractorClass.Embedded[0] != "ast.NodeVisitor" {
+		t.Errorf("Expected base class 'ast.NodeVisitor', got: %s", extractorClass.Embedded[0])
+	}
+
+	// Check MultipleInheritance (multiple inheritance)
+	multipleClass := findType(fileContext.Types, "MultipleInheritance")
+	if multipleClass == nil {
+		t.Fatal("Expected to find MultipleInheritance")
+	}
+	if len(multipleClass.Embedded) != 2 {
+		t.Errorf("MultipleInheritance should have 2 base classes, got: %v", multipleClass.Embedded)
+	}
+
+	t.Logf("✅ Class inheritance test passed:")
+	t.Logf("  - SimpleClass: %d base classes", len(simpleClass.Embedded))
+	t.Logf("  - PythonASTExtractor: %d base classes (%v)", len(extractorClass.Embedded), extractorClass.Embedded)
+	t.Logf("  - MultipleInheritance: %d base classes (%v)", len(multipleClass.Embedded), multipleClass.Embedded)
+}
+
 // Helper function to find a function by name
 func findFunction(functions []models.Function, name string) *models.Function {
 	for i := range functions {
