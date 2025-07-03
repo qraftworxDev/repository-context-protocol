@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:docs.anthropic.com)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(grep:*)",
+      "Bash(./bin/repocontext:*)",
+      "Bash(./bin/repocontext build:*)",
+      "Bash(make lint)",
+      "Bash(make fmt:*)",
+      "Bash(make:*)"
     ],
     "deny": []
   }
