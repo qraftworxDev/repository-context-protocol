@@ -189,6 +189,11 @@ func executeSearch(queryEngine *index.QueryEngine, flags *QueryFlags) (*index.Se
 		Format:         flags.Format,
 	}
 
+	// Enable types by default for pattern searches since classes/types are often searched
+	if flags.Search != "" && !flags.IncludeTypes {
+		queryOptions.IncludeTypes = true
+	}
+
 	// Execute search based on criteria
 	var result *index.SearchResult
 	var err error

@@ -54,6 +54,53 @@ func TestQueryEngine_SimplePatternMatching(t *testing.T) {
 	verifyPatternMatchesHelper(t, engine, tests)
 }
 
+// TestQueryEngine_PythonASTPatternFix tests the specific patterns that were failing
+func TestQueryEngine_PythonASTPatternFix(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	// Add PythonASTExtractor to test data
+	setupTestDataWithPythonAST(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	tests := []PatternTest{
+		{
+			name:          "PythonASTExtractor prefix wildcard",
+			pattern:       "PythonASTExtractor*",
+			expectedNames: []string{"PythonASTExtractor"},
+			description:   "Should match PythonASTExtractor with wildcard suffix",
+		},
+		{
+			name:          "PythonAST prefix wildcard",
+			pattern:       "PythonAST*",
+			expectedNames: []string{"PythonASTExtractor"},
+			description:   "Should match entities starting with PythonAST",
+		},
+		{
+			name:          "PythonAST suffix wildcard",
+			pattern:       "*PythonAST",
+			expectedNames: []string{},
+			description:   "Should not match since PythonASTExtractor doesn't end with PythonAST",
+		},
+		{
+			name:          "dot prefix with wildcard (glob pattern)",
+			pattern:       ".*PythonAST",
+			expectedNames: []string{},
+			description:   "Should treat as glob pattern (dot literal + wildcard), not regex",
+		},
+		{
+			name:          "regex pattern with delimiters",
+			pattern:       "/.*PythonAST/",
+			expectedNames: []string{"PythonASTExtractor"},
+			description:   "Should treat as regex pattern with delimiters",
+		},
+	}
+
+	// Use the common verification helper
+	verifyPatternMatchesHelper(t, engine, tests)
+}
+
 // TestQueryEngine_GlobPatternMatching tests shell-style glob patterns
 func TestQueryEngine_GlobPatternMatching(t *testing.T) {
 	tempDir, storage := setupTestStorage(t)
@@ -393,5 +440,32 @@ func setupTestDataForPatterns(t *testing.T, storage *HybridStorage) {
 	err := storage.StoreFileContext(fileContext)
 	if err != nil {
 		t.Fatalf("Failed to store pattern test data: %v", err)
+	}
+}
+
+// setupTestDataWithPythonAST creates test data including PythonASTExtractor for pattern fix testing
+func setupTestDataWithPythonAST(t *testing.T, storage *HybridStorage) {
+	// First set up the regular test data
+	setupTestDataForPatterns(t, storage)
+
+	// Add Python AST extractor data
+	pythonFileContext := &models.FileContext{
+		Path:     "python_extractor.py",
+		Language: "python",
+		Checksum: "python123",
+		ModTime:  time.Now(),
+		Types: []models.TypeDef{
+			{
+				Name:      "PythonASTExtractor",
+				Kind:      "type",
+				StartLine: 17,
+				EndLine:   582,
+			},
+		},
+	}
+
+	err := storage.StoreFileContext(pythonFileContext)
+	if err != nil {
+		t.Fatalf("Failed to store Python AST test data: %v", err)
 	}
 }
