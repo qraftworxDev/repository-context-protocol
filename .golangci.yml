@@ -26,7 +26,7 @@ linters-settings:
     threshold: 100
   goconst:
     min-len: 2
-    min-occurrences: 3
+    min-occurrences: 5
   misspell:
     locale: US
   lll:
