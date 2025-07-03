@@ -43,7 +43,7 @@ type PythonFunctionInfo struct {
 	Parameters []PythonParameterInfo `json:"parameters"`
 	Returns    []PythonTypeInfo      `json:"returns"`
 	Calls      []PythonCallInfo      `json:"calls"`
-	CalledBy   []string              `json:"called_by"`
+	CalledBy   []PythonCallerInfo    `json:"called_by"`
 	StartLine  int                   `json:"start_line"`
 	EndLine    int                   `json:"end_line"`
 	Decorators []string              `json:"decorators"`
@@ -66,6 +66,13 @@ type PythonCallInfo struct {
 	Name string `json:"name"`
 	Line int    `json:"line"`
 	Type string `json:"type"`
+}
+
+type PythonCallerInfo struct {
+	FunctionName string `json:"function_name"`
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	CallType     string `json:"call_type"`
 }
 
 type PythonClassInfo struct {
@@ -299,9 +306,23 @@ func (p *PythonParser) convertFunctions(pythonFunctions []PythonFunctionInfo) []
 			Name:      pFunc.Name,
 			StartLine: pFunc.StartLine,
 			EndLine:   pFunc.EndLine,
-			Calls:     p.extractCallNames(pFunc.Calls),
-			CalledBy:  pFunc.CalledBy,
+
+			// Populate deprecated fields for backward compatibility
+			Calls:    p.extractCallNames(pFunc.Calls),
+			CalledBy: p.extractCallerNames(pFunc.CalledBy),
+
+			// Initialize enhanced fields
+			LocalCalls:       []string{},
+			CrossFileCalls:   []models.CallReference{},
+			LocalCallers:     []string{},
+			CrossFileCallers: []models.CallReference{},
 		}
+
+		// Convert calls to enhanced format
+		p.convertPythonCalls(pFunc, &function)
+
+		// Convert callers to enhanced format
+		p.convertPythonCallers(pFunc, &function)
 
 		// Convert parameters
 		for _, param := range pFunc.Parameters {
@@ -564,4 +585,63 @@ func (p *PythonParser) validatePythonSetupLocked() error {
 func (p *PythonParser) checkPythonExecutable(executable string) error {
 	cmd := exec.Command(executable, "--version")
 	return cmd.Run()
+}
+
+// extractCallerNames extracts caller function names from PythonCallerInfo for backward compatibility
+func (p *PythonParser) extractCallerNames(callers []PythonCallerInfo) []string {
+	names := make([]string, len(callers))
+	for i, caller := range callers {
+		names[i] = caller.FunctionName
+	}
+	return names
+}
+
+// convertPythonCalls converts Python call info to enhanced LocalCalls and CrossFileCalls
+func (p *PythonParser) convertPythonCalls(pFunc *PythonFunctionInfo, function *models.Function) {
+	for _, call := range pFunc.Calls {
+		// For now, all calls are considered local since we're processing a single file
+		// The enrichment system will later categorize them into local vs cross-file
+		function.LocalCalls = append(function.LocalCalls, call.Name)
+	}
+}
+
+// convertPythonCallers converts Python caller info to enhanced LocalCallers and CrossFileCallers
+func (p *PythonParser) convertPythonCallers(pFunc *PythonFunctionInfo, function *models.Function) {
+	for _, caller := range pFunc.CalledBy {
+		if caller.File == "" || caller.File == p.getCurrentFilePath() {
+			// Local caller within same file
+			function.LocalCallers = append(function.LocalCallers, caller.FunctionName)
+		} else {
+			// Cross-file caller with metadata
+			callRef := models.CallReference{
+				FunctionName: caller.FunctionName,
+				File:         caller.File,
+				Line:         caller.Line,
+				CallType:     p.mapPythonCallType(caller.CallType),
+			}
+			function.CrossFileCallers = append(function.CrossFileCallers, callRef)
+		}
+	}
+}
+
+// getCurrentFilePath returns the current file path being processed
+func (p *PythonParser) getCurrentFilePath() string {
+	// This will be set during parsing - for now return empty string
+	return ""
+}
+
+// mapPythonCallType maps Python call types to Go model constants
+func (p *PythonParser) mapPythonCallType(pythonType string) string {
+	switch pythonType {
+	case "function":
+		return models.CallTypeFunction
+	case "method":
+		return models.CallTypeMethod
+	case "attribute":
+		return models.CallTypeMethod // Treat attribute access as method call
+	case "complex":
+		return models.CallTypeComplex
+	default:
+		return models.CallTypeFunction // Default fallback
+	}
 }

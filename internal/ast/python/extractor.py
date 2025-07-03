@@ -499,35 +499,54 @@ class PythonASTExtractor(ast.NodeVisitor):
                     break
 
     def _build_call_graph(self):
-        """Build call graph relationships between functions."""
+        """Build comprehensive call graph with caller relationships and metadata."""
         all_functions = self.functions[:]
         for cls in self.classes:
             all_functions.extend(cls["methods"])
 
-        # Create a map of function names for quick lookup
-        func_names = {func["name"] for func in all_functions}
+        # Create a map of function names to function objects for quick lookup
+        func_map = {func["name"]: func for func in all_functions}
+        func_names = set(func_map.keys())
 
-        # For each function, analyze its calls
+        # Initialize called_by field for all functions
         for func in all_functions:
-            func_calls = []
-            called_by = []
+            func["called_by"] = []
 
+        # Build caller relationships with detailed metadata
+        for func in all_functions:
             for call in func.get("calls", []):
                 call_name = call["name"]
+
+                # Handle both local calls (same file) and external calls
                 if "." not in call_name and call_name in func_names:
-                    func_calls.append(call_name)
-
-            func["calls_functions"] = func_calls
-            func["called_by"] = called_by  # Will be populated in second pass
-
-        # Second pass: populate called_by relationships
-        for func in all_functions:
-            for called_func_name in func.get("calls_functions", []):
-                for target_func in all_functions:
-                    if target_func["name"] == called_func_name:
-                        if "called_by" not in target_func:
-                            target_func["called_by"] = []
-                        target_func["called_by"].append(func["name"])
+                    # Local function call within same file
+                    target_func = func_map[call_name]
+                    caller_info = {
+                        "function_name": func["name"],
+                        "file": self.file_path,  # Same file for local calls
+                        "line": call["line"],
+                        "call_type": call["type"],
+                    }
+                    target_func["called_by"].append(caller_info)
+                elif "." in call_name:
+                    # Handle method calls - check if it's a call to a local method
+                    parts = call_name.split(".")
+                    if len(parts) == 2:
+                        obj_name, method_name = parts
+                        # Check if this is a method call on self or a known class
+                        if obj_name == "self" or method_name in func_names:
+                            target_name = (
+                                method_name if obj_name == "self" else call_name
+                            )
+                            if target_name in func_map:
+                                target_func = func_map[target_name]
+                                caller_info = {
+                                    "function_name": func["name"],
+                                    "file": self.file_path,
+                                    "line": call["line"],
+                                    "call_type": call["type"],
+                                }
+                                target_func["called_by"].append(caller_info)
 
     def _extract_exports(self):
         """Extract public API elements (exports)."""
