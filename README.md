@@ -307,8 +307,8 @@ EOF
 Samples are located in docs/samples.
 
 Specifically:
-1. [Python](#docs/samples/sample-python-output.json)
-1. [Go](#docs/samples-go-output.json)
+1. [Python](docs/samples/sample-python-output.json)
+1. [Go](docs/samples/sample-go-output.json)
 
 Create a refresh of these using.
 1. `repocontext query --function "PythonASTExtractor" --json` (Python)
