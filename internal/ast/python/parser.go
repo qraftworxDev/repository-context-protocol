@@ -342,6 +342,9 @@ func (p *PythonParser) convertFunctions(pythonFunctions []PythonFunctionInfo) []
 			function.Returns = append(function.Returns, returnType)
 		}
 
+		// Build signature with full declaration format
+		function.Signature = p.buildFunctionSignature(pFunc)
+
 		functions[i] = function
 	}
 
@@ -500,30 +503,36 @@ func (p *PythonParser) extractCallNames(calls []PythonCallInfo) []string {
 
 // buildMethodSignature creates a method signature string
 func (p *PythonParser) buildMethodSignature(method *PythonFunctionInfo) string {
+	paramStr, returnStr := p.buildPythonSignatureBody(method)
+	return fmt.Sprintf("def %s(%s) -> %s", method.Name, paramStr, returnStr)
+}
+
+// buildPythonSignatureBody creates parameter and return type strings for Python signatures
+func (p *PythonParser) buildPythonSignatureBody(functionInfo *PythonFunctionInfo) (paramStr, returnStr string) {
 	var parts []string
 
 	// Add parameters
-	for _, param := range method.Parameters {
+	for _, param := range functionInfo.Parameters {
 		parts = append(parts, fmt.Sprintf("%s: %s", param.Name, param.Type))
 	}
 
-	paramStr := strings.Join(parts, ", ")
+	paramStr = strings.Join(parts, ", ")
 
 	// Add return type - handle multiple return types
-	returnStr := "None"
-	if len(method.Returns) > 0 {
-		if len(method.Returns) == 1 {
-			returnStr = method.Returns[0].Name
+	returnStr = "None"
+	if len(functionInfo.Returns) > 0 {
+		if len(functionInfo.Returns) == 1 {
+			returnStr = functionInfo.Returns[0].Name
 		} else {
 			// Multiple return types - format as Union or Tuple depending on context
 			var returnTypes []string
-			for _, ret := range method.Returns {
+			for _, ret := range functionInfo.Returns {
 				returnTypes = append(returnTypes, ret.Name)
 			}
 
 			// If all return types are the same, just use one
-			if p.allReturnTypesSame(method.Returns) {
-				returnStr = method.Returns[0].Name
+			if p.allReturnTypesSame(functionInfo.Returns) {
+				returnStr = functionInfo.Returns[0].Name
 			} else {
 				// Format as Union for multiple different types
 				returnStr = fmt.Sprintf("Union[%s]", strings.Join(returnTypes, ", "))
@@ -531,7 +540,7 @@ func (p *PythonParser) buildMethodSignature(method *PythonFunctionInfo) string {
 		}
 	}
 
-	return fmt.Sprintf("(%s) -> %s", paramStr, returnStr)
+	return paramStr, returnStr
 }
 
 // allReturnTypesSame checks if all return types in the slice are identical
@@ -547,6 +556,12 @@ func (p *PythonParser) allReturnTypesSame(returns []PythonTypeInfo) bool {
 		}
 	}
 	return true
+}
+
+// buildFunctionSignature creates a full function signature string with def keyword
+func (p *PythonParser) buildFunctionSignature(function *PythonFunctionInfo) string {
+	paramStr, returnStr := p.buildPythonSignatureBody(function)
+	return fmt.Sprintf("def %s(%s) -> %s", function.Name, paramStr, returnStr)
 }
 
 // validatePythonSetup checks if Python is available and accessible

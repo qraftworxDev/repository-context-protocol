@@ -1003,7 +1003,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature := parser.buildMethodSignature(singleReturnFunc)
-	expected := "(param1: str) -> str"
+	expected := "def single_return(param1: str) -> str"
 	if signature != expected {
 		t.Errorf("Single return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
@@ -1023,7 +1023,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature = parser.buildMethodSignature(multipleReturnFunc)
-	expected = "(param1: str, param2: int) -> Union[str, int, bool]"
+	expected = "def multiple_return(param1: str, param2: int) -> Union[str, int, bool]"
 	if signature != expected {
 		t.Errorf("Multiple return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
@@ -1042,7 +1042,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature = parser.buildMethodSignature(identicalReturnFunc)
-	expected = "(param1: str) -> str"
+	expected = "def identical_return(param1: str) -> str"
 	if signature != expected {
 		t.Errorf("Identical return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
@@ -1055,7 +1055,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature = parser.buildMethodSignature(noReturnFunc)
-	expected = "() -> None"
+	expected = "def no_return() -> None"
 	if signature != expected {
 		t.Errorf("No return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
