@@ -611,12 +611,29 @@ func (p *PythonParser) extractCallerNames(callers []PythonCallerInfo) []string {
 	return names
 }
 
-// convertPythonCalls converts Python call info to enhanced LocalCalls and CrossFileCalls
+// convertPythonCalls converts Python call info to enhanced LocalCalls and LocalCallsWithMetadata
 func (p *PythonParser) convertPythonCalls(pFunc *PythonFunctionInfo, function *models.Function) {
+	// Convert call info to CallReference metadata
 	for _, call := range pFunc.Calls {
-		// For now, all calls are considered local since we're processing a single file
+		// Create call reference with metadata
+		callRef := models.CallReference{
+			FunctionName: call.Name,
+			File:         "", // Will be set during enrichment
+			Line:         call.Line,
+			CallType:     p.mapPythonCallType(call.Type),
+		}
+
+		// Store metadata for enrichment phase
+		function.LocalCallsWithMetadata = append(function.LocalCallsWithMetadata, callRef)
+
+		// Also populate LocalCalls for backward compatibility
 		// The enrichment system will later categorize them into local vs cross-file
 		function.LocalCalls = append(function.LocalCalls, call.Name)
+	}
+
+	// Ensure fields are never nil for JSON serialization
+	if function.LocalCallsWithMetadata == nil {
+		function.LocalCallsWithMetadata = []models.CallReference{}
 	}
 }
 

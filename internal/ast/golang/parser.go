@@ -235,6 +235,9 @@ func (p *GoParser) populateFunctionCalls(node *ast.FuncDecl, fn *models.Function
 		// Extract calls with metadata for enhanced fields
 		callsWithMetadata := p.extractFunctionCallsWithMetadata(node.Body)
 
+		// Store call metadata for enrichment phase
+		fn.LocalCallsWithMetadata = callsWithMetadata
+
 		// Populate LocalCalls (all calls initially - enrichment will categorize)
 		for _, call := range callsWithMetadata {
 			fn.LocalCalls = append(fn.LocalCalls, call.FunctionName)
@@ -247,6 +250,9 @@ func (p *GoParser) populateFunctionCalls(node *ast.FuncDecl, fn *models.Function
 	}
 	if fn.LocalCalls == nil {
 		fn.LocalCalls = []string{}
+	}
+	if fn.LocalCallsWithMetadata == nil {
+		fn.LocalCallsWithMetadata = []models.CallReference{}
 	}
 }
 

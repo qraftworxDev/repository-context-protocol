@@ -262,7 +262,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 1. Test different outputs.
 1. Fix lookup issue - when using nested "repos" (e.g. there's a .repocontext folder at root and inside another folder) the product returns the data from the root folder's content
     likely related to the lookup initialising by first going to root, and then doing the query lookup against the .repocontext. Should recursively step up the chain of paths to find the first instance of the folder and default to root.
-
+1. Add support to extract doc strings for functions, files, and variables/contstants/etc.
 
 # MCP server testing
 ## Test tools systematically
@@ -302,3 +302,14 @@ EOF
 {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "list_functions", "arguments": {}}}
 EOF
 ```
+
+# Samples
+Samples are located in docs/samples.
+
+Specifically:
+1. [Python](#docs/samples/sample-python-output.json)
+1. [Go](#docs/samples-go-output.json)
+
+Create a refresh of these using.
+1. `repocontext query --function "PythonASTExtractor" --json` (Python)
+1. `repocontext query --function "NewBuildCommand" --json` (Go)

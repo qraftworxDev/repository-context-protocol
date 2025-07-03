@@ -1,5 +1,7 @@
 package models
 
+import "slices"
+
 // Function representation and metadata
 type Function struct {
 	Name       string      `json:"name"`
@@ -18,6 +20,9 @@ type Function struct {
 	CrossFileCalls   []CallReference `json:"cross_file_calls"`   // Cross-file calls with metadata
 	LocalCallers     []string        `json:"local_callers"`      // Same-file callers only
 	CrossFileCallers []CallReference `json:"cross_file_callers"` // Cross-file callers with metadata
+
+	// INTERNAL FIELD: Used during parsing to preserve call metadata before enrichment
+	LocalCallsWithMetadata []CallReference `json:"-"` // Local calls with metadata (not serialized)
 }
 
 // CallReference represents a call relationship with additional metadata
@@ -157,10 +162,8 @@ func (f *Function) GetCallersFromFile(filePath string) []CallReference {
 // HasCall checks if the function calls a specific function by name
 func (f *Function) HasCall(functionName string) bool {
 	// Check local calls
-	for _, call := range f.LocalCalls {
-		if call == functionName {
-			return true
-		}
+	if slices.Contains(f.LocalCalls, functionName) {
+		return true
 	}
 
 	// Check cross-file calls
@@ -176,10 +179,8 @@ func (f *Function) HasCall(functionName string) bool {
 // HasCaller checks if the function is called by a specific function
 func (f *Function) HasCaller(functionName string) bool {
 	// Check local callers
-	for _, caller := range f.LocalCallers {
-		if caller == functionName {
-			return true
-		}
+	if slices.Contains(f.LocalCallers, functionName) {
+		return true
 	}
 
 	// Check cross-file callers
