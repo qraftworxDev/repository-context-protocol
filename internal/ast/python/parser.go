@@ -116,9 +116,10 @@ type PythonExportInfo struct {
 
 // PythonParser implements the LanguageParser interface for Python files
 type PythonParser struct {
-	mu            sync.RWMutex
-	pythonPath    string
-	extractorPath string
+	mu              sync.RWMutex
+	pythonPath      string
+	extractorPath   string
+	currentFilePath string
 }
 
 // NewPythonParser creates a new Python parser instance
@@ -154,6 +155,11 @@ func (p *PythonParser) ParseFile(path string, content []byte) (*models.FileConte
 	if err := p.ensureInitialized(); err != nil {
 		return nil, fmt.Errorf("parser initialization failed: %w", err)
 	}
+
+	// Set the current file path for caller categorization
+	p.mu.Lock()
+	p.currentFilePath = path
+	p.mu.Unlock()
 
 	// Execute the Python extractor
 	extractedData, err := p.executeExtractor(path, content)
@@ -658,8 +664,9 @@ func (p *PythonParser) convertPythonCallers(pFunc *PythonFunctionInfo, function 
 
 // getCurrentFilePath returns the current file path being processed
 func (p *PythonParser) getCurrentFilePath() string {
-	// This will be set during parsing - for now return empty string
-	return ""
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.currentFilePath
 }
 
 // mapPythonCallType maps Python call types to Go model constants
