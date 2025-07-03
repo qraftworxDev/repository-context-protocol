@@ -1,0 +1,727 @@
+{
+  "query": "PythonASTExtractor",
+  "search_type": "name",
+  "entries": [
+    {
+      "index_entry": {
+        "name": "PythonASTExtractor",
+        "type": "class",
+        "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/ast/python/extractor.py",
+        "start_line": 17,
+        "end_line": 582,
+        "chunk_id": "chunk_0e074212be3c5ff2",
+        "signature": "PythonASTExtractor(ast.NodeVisitor)"
+      },
+      "chunk_data": {
+        "id": "chunk_0e074212be3c5ff2",
+        "files": [
+          "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/ast/python/extractor.py"
+        ],
+        "file_data": [
+          {
+            "path": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/ast/python/extractor.py",
+            "language": "python",
+            "checksum": "ommitted due to security false positive",
+            "mod_time": "2025-07-03T07:22:39.626284803+01:00",
+            "functions": [
+              {
+                "name": "main",
+                "signature": "def main() -\u003e None",
+                "parameters": null,
+                "returns": [
+                  {
+                    "name": "None",
+                    "kind": "builtin"
+                  }
+                ],
+                "start_line": 585,
+                "end_line": 629,
+                "calls": [
+                  "len",
+                  "open",
+                  "f.read",
+                  "sys.stdin.read",
+                  "PythonASTExtractor",
+                  "extractor.extract",
+                  "print",
+                  "json.dumps",
+                  "str",
+                  "print",
+                  "json.dumps",
+                  "sys.exit",
+                  "str",
+                  "traceback.format_exc",
+                  "print",
+                  "json.dumps",
+                  "sys.exit"
+                ],
+                "local_calls": [],
+                "cross_file_calls": [
+                  {
+                    "function_name": "len",
+                    "file": "external",
+                    "line": 590,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "open",
+                    "file": "external",
+                    "line": 592,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "f.read",
+                    "file": "external",
+                    "line": 593,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "sys.stdin.read",
+                    "file": "external",
+                    "line": 595,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "PythonASTExtractor",
+                    "file": "external",
+                    "line": 597,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "extractor.extract",
+                    "file": "external",
+                    "line": 598,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "print",
+                    "file": "external",
+                    "line": 599,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "json.dumps",
+                    "file": "external",
+                    "line": 599,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "str",
+                    "file": "external",
+                    "line": 611,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "print",
+                    "file": "external",
+                    "line": 613,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "json.dumps",
+                    "file": "external",
+                    "line": 613,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "sys.exit",
+                    "file": "external",
+                    "line": 614,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "str",
+                    "file": "external",
+                    "line": 626,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "traceback.format_exc",
+                    "file": "external",
+                    "line": 626,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "print",
+                    "file": "external",
+                    "line": 628,
+                    "call_type": "function"
+                  },
+                  {
+                    "function_name": "json.dumps",
+                    "file": "external",
+                    "line": 628,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "sys.exit",
+                    "file": "external",
+                    "line": 629,
+                    "call_type": "method"
+                  }
+                ],
+                "local_callers": [],
+                "cross_file_callers": []
+              }
+            ],
+            "types": [
+              {
+                "name": "PythonASTExtractor",
+                "kind": "class",
+                "methods": [
+                  {
+                    "name": "__init__",
+                    "signature": "def __init__(source_code: str, file_path: str) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "source_code",
+                        "type": "str"
+                      },
+                      {
+                        "name": "file_path",
+                        "type": "str"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 18,
+                    "end_line": 30
+                  },
+                  {
+                    "name": "extract",
+                    "signature": "def extract() -\u003e Dict[str, Any]",
+                    "parameters": null,
+                    "returns": [
+                      {
+                        "name": "Dict[str, Any]",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 32,
+                    "end_line": 66
+                  },
+                  {
+                    "name": "visit_FunctionDef",
+                    "signature": "def visit_FunctionDef(node: ast.FunctionDef) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.FunctionDef"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 68,
+                    "end_line": 85
+                  },
+                  {
+                    "name": "visit_AsyncFunctionDef",
+                    "signature": "def visit_AsyncFunctionDef(node: ast.AsyncFunctionDef) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.AsyncFunctionDef"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 87,
+                    "end_line": 101
+                  },
+                  {
+                    "name": "_extract_function",
+                    "signature": "def _extract_function(node: Any) -\u003e Dict[str, Any]",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "Any"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "Dict[str, Any]",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 103,
+                    "end_line": 180
+                  },
+                  {
+                    "name": "visit_ClassDef",
+                    "signature": "def visit_ClassDef(node: ast.ClassDef) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.ClassDef"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 182,
+                    "end_line": 207
+                  },
+                  {
+                    "name": "visit_Call",
+                    "signature": "def visit_Call(node: ast.Call) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.Call"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 209,
+                    "end_line": 224
+                  },
+                  {
+                    "name": "_extract_call_name",
+                    "signature": "def _extract_call_name(node: ast.Call) -\u003e Optional[str]",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.Call"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "Optional[str]",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 226,
+                    "end_line": 235
+                  },
+                  {
+                    "name": "_classify_call",
+                    "signature": "def _classify_call(node: ast.Call) -\u003e str",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.Call"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "str",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 237,
+                    "end_line": 246
+                  },
+                  {
+                    "name": "visit_Import",
+                    "signature": "def visit_Import(node: ast.Import) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.Import"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 248,
+                    "end_line": 258
+                  },
+                  {
+                    "name": "visit_ImportFrom",
+                    "signature": "def visit_ImportFrom(node: ast.ImportFrom) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.ImportFrom"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 260,
+                    "end_line": 276
+                  },
+                  {
+                    "name": "visit_Assign",
+                    "signature": "def visit_Assign(node: ast.Assign) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.Assign"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 278,
+                    "end_line": 288
+                  },
+                  {
+                    "name": "visit_AnnAssign",
+                    "signature": "def visit_AnnAssign(node: ast.AnnAssign) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.AnnAssign"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 290,
+                    "end_line": 300
+                  },
+                  {
+                    "name": "_extract_variable",
+                    "signature": "def _extract_variable(target: ast.Name, node: ast.Assign) -\u003e Dict[str, Any]",
+                    "parameters": [
+                      {
+                        "name": "target",
+                        "type": "ast.Name"
+                      },
+                      {
+                        "name": "node",
+                        "type": "ast.Assign"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "Dict[str, Any]",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 302,
+                    "end_line": 313
+                  },
+                  {
+                    "name": "_extract_annotated_variable",
+                    "signature": "def _extract_annotated_variable(node: ast.AnnAssign) -\u003e Dict[str, Any]",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.AnnAssign"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "Dict[str, Any]",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 315,
+                    "end_line": 325
+                  },
+                  {
+                    "name": "_is_constant",
+                    "signature": "def _is_constant(name: str) -\u003e bool",
+                    "parameters": [
+                      {
+                        "name": "name",
+                        "type": "str"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "bool",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 327,
+                    "end_line": 329
+                  },
+                  {
+                    "name": "_infer_type",
+                    "signature": "def _infer_type(node: ast.AST) -\u003e str",
+                    "parameters": [
+                      {
+                        "name": "node",
+                        "type": "ast.AST"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "str",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 331,
+                    "end_line": 398
+                  },
+                  {
+                    "name": "_normalize_type",
+                    "signature": "def _normalize_type(type_str: str) -\u003e str",
+                    "parameters": [
+                      {
+                        "name": "type_str",
+                        "type": "str"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "str",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 400,
+                    "end_line": 426
+                  },
+                  {
+                    "name": "_parse_generic_type_python",
+                    "signature": "def _parse_generic_type_python(type_str: str) -\u003e str",
+                    "parameters": [
+                      {
+                        "name": "type_str",
+                        "type": "str"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "str",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 428,
+                    "end_line": 458
+                  },
+                  {
+                    "name": "_parse_type_parameters",
+                    "signature": "def _parse_type_parameters(params_str: str) -\u003e list",
+                    "parameters": [
+                      {
+                        "name": "params_str",
+                        "type": "str"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "list",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 460,
+                    "end_line": 484
+                  },
+                  {
+                    "name": "_add_call_to_current_function",
+                    "signature": "def _add_call_to_current_function(func_name: str, call_info: Dict[str, Any]) -\u003e None",
+                    "parameters": [
+                      {
+                        "name": "func_name",
+                        "type": "str"
+                      },
+                      {
+                        "name": "call_info",
+                        "type": "Dict[str, Any]"
+                      }
+                    ],
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 486,
+                    "end_line": 499
+                  },
+                  {
+                    "name": "_build_call_graph",
+                    "signature": "def _build_call_graph() -\u003e None",
+                    "parameters": null,
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 501,
+                    "end_line": 549
+                  },
+                  {
+                    "name": "_extract_exports",
+                    "signature": "def _extract_exports() -\u003e None",
+                    "parameters": null,
+                    "returns": [
+                      {
+                        "name": "None",
+                        "kind": "builtin"
+                      }
+                    ],
+                    "start_line": 551,
+                    "end_line": 582
+                  }
+                ],
+                "start_line": 17,
+                "end_line": 582,
+                "embedded": [
+                  "ast.NodeVisitor"
+                ]
+              }
+            ],
+            "variables": [
+              {
+                "name": "file_path",
+                "type": "str",
+                "start_line": 589,
+                "end_line": 589
+              },
+              {
+                "name": "file_path",
+                "type": "Any",
+                "start_line": 591,
+                "end_line": 591
+              },
+              {
+                "name": "source_code",
+                "type": "Any",
+                "start_line": 593,
+                "end_line": 593
+              },
+              {
+                "name": "source_code",
+                "type": "Any",
+                "start_line": 595,
+                "end_line": 595
+              },
+              {
+                "name": "extractor",
+                "type": "Any",
+                "start_line": 597,
+                "end_line": 597
+              },
+              {
+                "name": "result",
+                "type": "Any",
+                "start_line": 598,
+                "end_line": 598
+              },
+              {
+                "name": "error_result",
+                "type": "dict",
+                "start_line": 602,
+                "end_line": 602
+              },
+              {
+                "name": "error_result",
+                "type": "dict",
+                "start_line": 617,
+                "end_line": 617
+              }
+            ],
+            "constants": [],
+            "imports": [
+              {
+                "path": "ast"
+              },
+              {
+                "path": "json"
+              },
+              {
+                "path": "sys"
+              },
+              {
+                "path": "traceback"
+              },
+              {
+                "path": "typing.Dict"
+              },
+              {
+                "path": "typing.Any"
+              },
+              {
+                "path": "typing.Optional"
+              }
+            ],
+            "exports": [
+              {
+                "name": "main",
+                "type": "function",
+                "kind": "function"
+              },
+              {
+                "name": "PythonASTExtractor",
+                "type": "class",
+                "kind": "type"
+              },
+              {
+                "name": "file_path",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "file_path",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "source_code",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "source_code",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "extractor",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "result",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "error_result",
+                "type": "variable",
+                "kind": "variable"
+              },
+              {
+                "name": "error_result",
+                "type": "variable",
+                "kind": "variable"
+              }
+            ]
+          }
+        ],
+        "token_count": 311,
+        "created_at": "2025-07-03T12:36:41.647133+01:00"
+      }
+    }
+  ],
+  "token_count": 373,
+  "truncated": false,
+  "executed_at": "2025-07-03T12:37:29.363297+01:00"
+}
