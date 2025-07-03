@@ -28,6 +28,7 @@ const (
 	EntityKindAlias     = "alias"
 	EntityKindEnum      = "enum"
 	EntityKindFunction  = "function"
+	EntityKindClass     = "class"
 
 	// Token estimation constants
 	TokenOverhead    = 10
@@ -253,7 +254,7 @@ func (qe *QueryEngine) SearchByPatternWithOptions(pattern string, options QueryO
 
 	// Search all type kinds (struct, interface, etc.) if IncludeTypes is enabled
 	if options.IncludeTypes {
-		typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum}
+		typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum, EntityKindClass}
 		for _, typeKind := range typeKinds {
 			queryResults, err := qe.storage.QueryByType(typeKind)
 			if err != nil {
@@ -310,7 +311,7 @@ func (qe *QueryEngine) SearchInFileWithOptions(filePath string, options QueryOpt
 
 	// For types, we need to search for all specific type kinds (struct, interface, etc.)
 	// since they are stored by their specific kind, not the generic "type"
-	typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum}
+	typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum, EntityKindClass}
 
 	// Search for functions, variables, constants
 	for _, entityType := range entityTypes {
@@ -578,7 +579,9 @@ func (qe *QueryEngine) isRegexPattern(pattern string) bool {
 	}
 
 	// Check for regex-specific patterns
-	regexPatterns := []string{"(?", ".+", ".*", ".?", "\\d", "\\w", "\\s", "\\p{", "\\b"}
+	// Note: Removed ".*" from this list as it's commonly used in glob patterns
+	// where "." is a literal dot character followed by "*" wildcard
+	regexPatterns := []string{"(?", ".+", ".?", "\\d", "\\w", "\\s", "\\p{", "\\b"}
 	for _, regexPattern := range regexPatterns {
 		if strings.Contains(pattern, regexPattern) {
 			return true
