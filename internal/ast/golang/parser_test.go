@@ -207,3 +207,232 @@ func findFunction(functions []models.Function, name string) *models.Function {
 	}
 	return nil
 }
+
+func TestGoParser_isPackageCall(t *testing.T) {
+	parser := NewGoParser()
+
+	tests := []struct {
+		name     string
+		imports  []models.Import
+		callName string
+		expected bool
+	}{
+		// Standard library without alias
+		{
+			name: "Standard library fmt",
+			imports: []models.Import{
+				{Path: "fmt", Alias: ""},
+			},
+			callName: "fmt",
+			expected: true,
+		},
+		{
+			name: "Standard library os",
+			imports: []models.Import{
+				{Path: "os", Alias: ""},
+			},
+			callName: "os",
+			expected: true,
+		},
+		// Import with alias
+		{
+			name: "Standard library with alias",
+			imports: []models.Import{
+				{Path: "fmt", Alias: "f"},
+			},
+			callName: "f",
+			expected: true,
+		},
+		{
+			name: "Third-party package with alias",
+			imports: []models.Import{
+				{Path: "github.com/pkg/errors", Alias: "errs"},
+			},
+			callName: "errs",
+			expected: true,
+		},
+		// Third-party packages
+		{
+			name: "Third-party package github.com/pkg/errors",
+			imports: []models.Import{
+				{Path: "github.com/pkg/errors", Alias: ""},
+			},
+			callName: "errors",
+			expected: true,
+		},
+		{
+			name: "Third-party package golang.org/x/tools",
+			imports: []models.Import{
+				{Path: "golang.org/x/tools/go/ast", Alias: ""},
+			},
+			callName: "ast",
+			expected: true,
+		},
+		{
+			name: "Deep path package",
+			imports: []models.Import{
+				{Path: "path/to/deep/package", Alias: ""},
+			},
+			callName: "package",
+			expected: true,
+		},
+		// Non-package calls
+		{
+			name: "Non-package call",
+			imports: []models.Import{
+				{Path: "fmt", Alias: ""},
+			},
+			callName: "myFunction",
+			expected: false,
+		},
+		{
+			name:     "Empty imports",
+			imports:  []models.Import{},
+			callName: "fmt",
+			expected: false,
+		},
+		{
+			name: "Call name doesn't match any import",
+			imports: []models.Import{
+				{Path: "fmt", Alias: ""},
+				{Path: "os", Alias: ""},
+			},
+			callName: "strings",
+			expected: false,
+		},
+		// Edge cases
+		{
+			name: "Alias doesn't match original package name",
+			imports: []models.Import{
+				{Path: "fmt", Alias: "f"},
+			},
+			callName: "fmt", // Should be false because the alias is "f"
+			expected: false,
+		},
+		{
+			name: "Multiple imports with same package name",
+			imports: []models.Import{
+				{Path: "fmt", Alias: ""},
+				{Path: "custom/fmt", Alias: "customfmt"},
+			},
+			callName: "fmt",
+			expected: true,
+		},
+		{
+			name: "Dot import (alias is '.')",
+			imports: []models.Import{
+				{Path: "math", Alias: "."},
+			},
+			callName: "math", // Even with dot import, the package name should still work
+			expected: false,  // Dot imports use "." as alias, so "math" won't match
+		},
+		{
+			name: "Blank import (alias is '_')",
+			imports: []models.Import{
+				{Path: "database/sql/driver", Alias: "_"},
+			},
+			callName: "driver", // Blank imports shouldn't be callable
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parser.isPackageCall(tt.callName, tt.imports)
+			if result != tt.expected {
+				t.Errorf("isPackageCall(%q, %+v) = %v, want %v", tt.callName, tt.imports, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGoParser_PackageCallIntegration(t *testing.T) {
+	parser := NewGoParser()
+
+	// Test complete integration with real Go code
+	code := `package main
+
+import (
+	"fmt"
+	f "fmt"
+	"os"
+	"github.com/pkg/errors"
+	errs "github.com/pkg/errors"
+	"golang.org/x/tools/go/ast"
+	_ "database/sql/driver"
+)
+
+func main() {
+	fmt.Println("standard fmt")
+	f.Printf("aliased fmt")
+	os.Open("file")
+	errors.New("pkg errors")
+	errs.Wrap(nil, "aliased errors")
+	ast.Print(nil)
+	localFunction()
+	obj.method()
+}
+
+func localFunction() {}
+`
+
+	fileContext, err := parser.ParseFile("test.go", []byte(code))
+	if err != nil {
+		t.Fatalf("Failed to parse code: %v", err)
+	}
+
+	// Find the main function
+	mainFunc := findFunction(fileContext.Functions, "main")
+	if mainFunc == nil {
+		t.Fatal("Main function not found")
+	}
+
+	// Check that package calls are correctly identified as external
+	externalCalls := []string{"fmt.Println", "f.Printf", "os.Open", "errors.New", "errs.Wrap", "ast.Print"}
+	localCalls := []string{"localFunction", "obj.method"}
+
+	for _, call := range mainFunc.LocalCallsWithMetadata {
+		callName := call.FunctionName
+		callType := call.CallType
+
+		// Check if it should be external
+		shouldBeExternal := false
+		for _, expectedExternal := range externalCalls {
+			if callName == expectedExternal {
+				shouldBeExternal = true
+				break
+			}
+		}
+
+		// Check if it should be local/method
+		shouldBeLocal := false
+		for _, expectedLocal := range localCalls {
+			if callName == expectedLocal {
+				shouldBeLocal = true
+				break
+			}
+		}
+
+		if shouldBeExternal {
+			if callType != models.CallTypeExternal {
+				t.Errorf("Expected %s to be CallTypeExternal, got %s", callName, callType)
+			}
+		} else if shouldBeLocal {
+			if callType != models.CallTypeFunction && callType != models.CallTypeMethod {
+				t.Errorf("Expected %s to be CallTypeFunction or CallTypeMethod, got %s", callName, callType)
+			}
+		}
+	}
+
+	// Verify that we correctly identified some external calls
+	hasExternalCalls := false
+	for _, call := range mainFunc.LocalCallsWithMetadata {
+		if call.CallType == models.CallTypeExternal {
+			hasExternalCalls = true
+			break
+		}
+	}
+	if !hasExternalCalls {
+		t.Error("Expected to find at least one external call, but found none")
+	}
+}

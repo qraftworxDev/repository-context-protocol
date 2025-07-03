@@ -103,7 +103,7 @@ func (p *GoParser) ParseFile(path string, content []byte) (*models.FileContext, 
 		switch node := n.(type) {
 		case *ast.FuncDecl:
 			// Extract all functions (not just exported ones for testing)
-			ctx.Functions = append(ctx.Functions, p.extractFunction(node))
+			ctx.Functions = append(ctx.Functions, p.extractFunction(node, ctx.Imports))
 		case *ast.TypeSpec:
 			ctx.Types = append(ctx.Types, p.extractType(node))
 		case *ast.GenDecl:
@@ -142,7 +142,7 @@ func (p *GoParser) ParseFile(path string, content []byte) (*models.FileContext, 
 	return ctx, nil
 }
 
-func (p *GoParser) extractFunction(node *ast.FuncDecl) models.Function {
+func (p *GoParser) extractFunction(node *ast.FuncDecl, imports []models.Import) models.Function {
 	fn := models.Function{
 		Name:       node.Name.Name,
 		Parameters: []models.Parameter{},
@@ -174,7 +174,7 @@ func (p *GoParser) extractFunction(node *ast.FuncDecl) models.Function {
 	fn.Returns = p.extractFunctionReturns(node)
 
 	// Extract function calls
-	p.populateFunctionCalls(node, &fn)
+	p.populateFunctionCalls(node, &fn, imports)
 
 	// Build signature
 	fn.Signature = p.buildFunctionSignature(node)
@@ -227,13 +227,13 @@ func (p *GoParser) extractFunctionReturns(node *ast.FuncDecl) []models.Type {
 }
 
 // populateFunctionCalls extracts function calls from the body and populates call fields
-func (p *GoParser) populateFunctionCalls(node *ast.FuncDecl, fn *models.Function) {
+func (p *GoParser) populateFunctionCalls(node *ast.FuncDecl, fn *models.Function, imports []models.Import) {
 	if node.Body != nil {
 		// Extract calls for deprecated field (backward compatibility)
 		fn.Calls = p.extractFunctionCalls(node.Body)
 
 		// Extract calls with metadata for enhanced fields
-		callsWithMetadata := p.extractFunctionCallsWithMetadata(node.Body)
+		callsWithMetadata := p.extractFunctionCallsWithMetadata(node.Body, imports)
 
 		// Store call metadata for enrichment phase
 		fn.LocalCallsWithMetadata = callsWithMetadata
@@ -732,7 +732,7 @@ func (p *GoParser) extractCallName(expr ast.Expr) string {
 }
 
 // extractFunctionCallsWithMetadata analyzes a function body to find all function calls with metadata
-func (p *GoParser) extractFunctionCallsWithMetadata(body *ast.BlockStmt) []models.CallReference {
+func (p *GoParser) extractFunctionCallsWithMetadata(body *ast.BlockStmt, imports []models.Import) []models.CallReference {
 	var calls []models.CallReference
 	callMap := make(map[string]models.CallReference) // Deduplicate by name but keep metadata
 
@@ -741,7 +741,7 @@ func (p *GoParser) extractFunctionCallsWithMetadata(body *ast.BlockStmt) []model
 			callName := p.extractCallName(callExpr.Fun)
 			if callName != "" {
 				pos := p.fset.Position(callExpr.Pos())
-				callType := p.classifyCallType(callExpr)
+				callType := p.classifyCallType(callExpr, imports)
 
 				callRef := models.CallReference{
 					FunctionName: callName,
@@ -766,7 +766,7 @@ func (p *GoParser) extractFunctionCallsWithMetadata(body *ast.BlockStmt) []model
 }
 
 // classifyCallType determines the type of call (function, method, external, etc.)
-func (p *GoParser) classifyCallType(callExpr *ast.CallExpr) string {
+func (p *GoParser) classifyCallType(callExpr *ast.CallExpr, imports []models.Import) string {
 	switch expr := callExpr.Fun.(type) {
 	case *ast.Ident:
 		// Simple function call: foo()
@@ -775,7 +775,7 @@ func (p *GoParser) classifyCallType(callExpr *ast.CallExpr) string {
 		// Method call or package function: obj.Method() or pkg.Func()
 		if x, ok := expr.X.(*ast.Ident); ok {
 			// Check if it's a package call (like fmt.Println) or method call
-			if p.isPackageCall(x.Name) {
+			if p.isPackageCall(x.Name, imports) {
 				return models.CallTypeExternal
 			}
 			return models.CallTypeMethod
@@ -790,36 +790,37 @@ func (p *GoParser) classifyCallType(callExpr *ast.CallExpr) string {
 }
 
 // isPackageCall checks if the identifier represents a package name
-func (p *GoParser) isPackageCall(name string) bool {
-	// Common Go standard library packages and patterns
-	commonPackages := map[string]bool{
-		"fmt":      true,
-		"os":       true,
-		"io":       true,
-		"net":      true,
-		"http":     true,
-		"json":     true,
-		"time":     true,
-		"strings":  true,
-		"strconv":  true,
-		"errors":   true,
-		"context":  true,
-		"sync":     true,
-		"log":      true,
-		"math":     true,
-		"sort":     true,
-		"bytes":    true,
-		"path":     true,
-		"url":      true,
-		"crypto":   true,
-		"hash":     true,
-		"encoding": true,
-		"reflect":  true,
-		"runtime":  true,
-		"testing":  true,
+func (p *GoParser) isPackageCall(name string, imports []models.Import) bool {
+	// Check if the name matches any import alias
+	for _, imp := range imports {
+		if imp.Alias != "" && imp.Alias == name {
+			return true
+		}
 	}
 
-	return commonPackages[name]
+	// Check if the name matches the last segment of any import path
+	for _, imp := range imports {
+		// Skip imports with explicit aliases (already handled above)
+		if imp.Alias != "" {
+			continue
+		}
+
+		// Extract the package name from the import path
+		// For "fmt", use "fmt"
+		// For "path/filepath", use "filepath"
+		// For "github.com/pkg/errors", use "errors"
+		pkgName := imp.Path
+		if strings.Contains(pkgName, "/") {
+			parts := strings.Split(pkgName, "/")
+			pkgName = parts[len(parts)-1]
+		}
+
+		if pkgName == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // buildCallGraph builds the CalledBy relationships between functions (both deprecated and enhanced fields)

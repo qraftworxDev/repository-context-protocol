@@ -9,7 +9,8 @@
       "Bash(./bin/repocontext build:*)",
       "Bash(make lint)",
       "Bash(make fmt:*)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }

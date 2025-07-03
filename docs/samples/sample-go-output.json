@@ -47,6 +47,12 @@
                 ],
                 "cross_file_calls": [
                   {
+                    "function_name": "BoolVarP",
+                    "file": "external",
+                    "line": 37,
+                    "call_type": "method"
+                  },
+                  {
                     "function_name": "StringVarP",
                     "file": "external",
                     "line": 36,
@@ -54,12 +60,6 @@
                   },
                   {
                     "function_name": "cmd.Flags",
-                    "file": "external",
-                    "line": 37,
-                    "call_type": "method"
-                  },
-                  {
-                    "function_name": "BoolVarP",
                     "file": "external",
                     "line": 37,
                     "call_type": "method"
@@ -152,38 +152,26 @@
                   "NewBuildCommand"
                 ],
                 "local_calls": [
-                  "validateRepositoryInitialized",
-                  "determineTargetPath"
+                  "determineTargetPath",
+                  "validateRepositoryInitialized"
                 ],
                 "cross_file_calls": [
                   {
-                    "function_name": "filepath.Join",
+                    "function_name": "fmt.Errorf",
                     "file": "external",
-                    "line": 91,
-                    "call_type": "method"
-                  },
-                  {
-                    "function_name": "fmt.Printf",
-                    "file": "external",
-                    "line": 91,
+                    "line": 77,
                     "call_type": "external"
                   },
                   {
                     "function_name": "index.NewIndexBuilder",
                     "file": "external",
                     "line": 60,
-                    "call_type": "method"
+                    "call_type": "external"
                   },
                   {
-                    "function_name": "builder.Initialize",
+                    "function_name": "filepath.Join",
                     "file": "external",
-                    "line": 61,
-                    "call_type": "method"
-                  },
-                  {
-                    "function_name": "fmt.Println",
-                    "file": "external",
-                    "line": 71,
+                    "line": 91,
                     "call_type": "external"
                   },
                   {
@@ -193,10 +181,16 @@
                     "call_type": "method"
                   },
                   {
-                    "function_name": "fmt.Errorf",
+                    "function_name": "fmt.Printf",
                     "file": "external",
-                    "line": 77,
+                    "line": 91,
                     "call_type": "external"
+                  },
+                  {
+                    "function_name": "builder.Initialize",
+                    "file": "external",
+                    "line": 61,
+                    "call_type": "method"
                   },
                   {
                     "function_name": "\u003canonymous\u003e",
@@ -209,6 +203,12 @@
                     "file": "external",
                     "line": 65,
                     "call_type": "method"
+                  },
+                  {
+                    "function_name": "fmt.Println",
+                    "file": "external",
+                    "line": 71,
+                    "call_type": "external"
                   }
                 ],
                 "local_callers": [
@@ -251,6 +251,24 @@
                 "local_calls": [],
                 "cross_file_calls": [
                   {
+                    "function_name": "filepath.Abs",
+                    "file": "external",
+                    "line": 104,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "fmt.Errorf",
+                    "file": "external",
+                    "line": 126,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "os.Getwd",
+                    "file": "external",
+                    "line": 110,
+                    "call_type": "external"
+                  },
+                  {
                     "function_name": "os.Stat",
                     "file": "external",
                     "line": 117,
@@ -267,24 +285,6 @@
                     "file": "external",
                     "line": 125,
                     "call_type": "method"
-                  },
-                  {
-                    "function_name": "filepath.Abs",
-                    "file": "external",
-                    "line": 104,
-                    "call_type": "method"
-                  },
-                  {
-                    "function_name": "fmt.Errorf",
-                    "file": "external",
-                    "line": 126,
-                    "call_type": "external"
-                  },
-                  {
-                    "function_name": "os.Getwd",
-                    "file": "external",
-                    "line": 110,
-                    "call_type": "external"
                   }
                 ],
                 "local_callers": [
@@ -322,12 +322,6 @@
                 "local_calls": [],
                 "cross_file_calls": [
                   {
-                    "function_name": "filepath.Join",
-                    "file": "external",
-                    "line": 150,
-                    "call_type": "method"
-                  },
-                  {
                     "function_name": "os.Stat",
                     "file": "external",
                     "line": 151,
@@ -350,6 +344,12 @@
                     "file": "external",
                     "line": 145,
                     "call_type": "method"
+                  },
+                  {
+                    "function_name": "filepath.Join",
+                    "file": "external",
+                    "line": 150,
+                    "call_type": "external"
                   }
                 ],
                 "local_callers": [
@@ -413,11 +413,11 @@
           }
         ],
         "token_count": 151,
-        "created_at": "2025-07-03T12:36:41.80798+01:00"
+        "created_at": "2025-07-03T14:04:41.817046+01:00"
       }
     }
   ],
   "token_count": 215,
   "truncated": false,
-  "executed_at": "2025-07-03T12:37:00.251484+01:00"
+  "executed_at": "2025-07-03T14:06:09.084035+01:00"
 }
