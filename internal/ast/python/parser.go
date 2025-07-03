@@ -43,7 +43,7 @@ type PythonFunctionInfo struct {
 	Parameters []PythonParameterInfo `json:"parameters"`
 	Returns    []PythonTypeInfo      `json:"returns"`
 	Calls      []PythonCallInfo      `json:"calls"`
-	CalledBy   []string              `json:"called_by"`
+	CalledBy   []PythonCallerInfo    `json:"called_by"`
 	StartLine  int                   `json:"start_line"`
 	EndLine    int                   `json:"end_line"`
 	Decorators []string              `json:"decorators"`
@@ -66,6 +66,13 @@ type PythonCallInfo struct {
 	Name string `json:"name"`
 	Line int    `json:"line"`
 	Type string `json:"type"`
+}
+
+type PythonCallerInfo struct {
+	FunctionName string `json:"function_name"`
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	CallType     string `json:"call_type"`
 }
 
 type PythonClassInfo struct {
@@ -109,9 +116,10 @@ type PythonExportInfo struct {
 
 // PythonParser implements the LanguageParser interface for Python files
 type PythonParser struct {
-	mu            sync.RWMutex
-	pythonPath    string
-	extractorPath string
+	mu              sync.RWMutex
+	pythonPath      string
+	extractorPath   string
+	currentFilePath string
 }
 
 // NewPythonParser creates a new Python parser instance
@@ -147,6 +155,11 @@ func (p *PythonParser) ParseFile(path string, content []byte) (*models.FileConte
 	if err := p.ensureInitialized(); err != nil {
 		return nil, fmt.Errorf("parser initialization failed: %w", err)
 	}
+
+	// Set the current file path for caller categorization
+	p.mu.Lock()
+	p.currentFilePath = path
+	p.mu.Unlock()
 
 	// Execute the Python extractor
 	extractedData, err := p.executeExtractor(path, content)
@@ -299,9 +312,23 @@ func (p *PythonParser) convertFunctions(pythonFunctions []PythonFunctionInfo) []
 			Name:      pFunc.Name,
 			StartLine: pFunc.StartLine,
 			EndLine:   pFunc.EndLine,
-			Calls:     p.extractCallNames(pFunc.Calls),
-			CalledBy:  pFunc.CalledBy,
+
+			// Populate deprecated fields for backward compatibility
+			Calls:    p.extractCallNames(pFunc.Calls),
+			CalledBy: p.extractCallerNames(pFunc.CalledBy),
+
+			// Initialize enhanced fields
+			LocalCalls:       []string{},
+			CrossFileCalls:   []models.CallReference{},
+			LocalCallers:     []string{},
+			CrossFileCallers: []models.CallReference{},
 		}
+
+		// Convert calls to enhanced format
+		p.convertPythonCalls(pFunc, &function)
+
+		// Convert callers to enhanced format
+		p.convertPythonCallers(pFunc, &function)
 
 		// Convert parameters
 		for _, param := range pFunc.Parameters {
@@ -320,6 +347,9 @@ func (p *PythonParser) convertFunctions(pythonFunctions []PythonFunctionInfo) []
 			}
 			function.Returns = append(function.Returns, returnType)
 		}
+
+		// Build signature with full declaration format
+		function.Signature = p.buildFunctionSignature(pFunc)
 
 		functions[i] = function
 	}
@@ -393,8 +423,10 @@ func (p *PythonParser) convertVariables(pythonVars []PythonVariableInfo) []model
 
 	for i, pVar := range pythonVars {
 		variables[i] = models.Variable{
-			Name: pVar.Name,
-			Type: pVar.Type,
+			Name:      pVar.Name,
+			Type:      pVar.Type,
+			StartLine: pVar.Line,
+			EndLine:   pVar.Line,
 		}
 	}
 
@@ -407,8 +439,10 @@ func (p *PythonParser) convertConstants(pythonConsts []PythonVariableInfo) []mod
 
 	for i, pConst := range pythonConsts {
 		constants[i] = models.Constant{
-			Name: pConst.Name,
-			Type: pConst.Type,
+			Name:      pConst.Name,
+			Type:      pConst.Type,
+			StartLine: pConst.Line,
+			EndLine:   pConst.Line,
 		}
 	}
 
@@ -417,12 +451,25 @@ func (p *PythonParser) convertConstants(pythonConsts []PythonVariableInfo) []mod
 
 // convertImports converts Python import info to Go models
 func (p *PythonParser) convertImports(pythonImports []PythonImportInfo) []models.Import {
-	imports := make([]models.Import, len(pythonImports))
+	var imports []models.Import
 
-	for i, pImport := range pythonImports {
-		imports[i] = models.Import{
-			Path:  pImport.Path,
-			Alias: pImport.Alias,
+	for _, pImport := range pythonImports {
+		if len(pImport.Items) > 0 && !pImport.IsStarImport {
+			// For "from module import item1, item2", create separate records for each item
+			for _, item := range pImport.Items {
+				// Create path as "module.item" to show what's actually available in namespace
+				importPath := pImport.Path + "." + item
+				imports = append(imports, models.Import{
+					Path:  importPath,
+					Alias: pImport.Alias, // Only the last item can have an alias in "from x import y as z"
+				})
+			}
+		} else {
+			// For "import module" or "from module import *", use the module path directly
+			imports = append(imports, models.Import{
+				Path:  pImport.Path,
+				Alias: pImport.Alias,
+			})
 		}
 	}
 
@@ -434,10 +481,18 @@ func (p *PythonParser) convertExports(pythonExports []PythonExportInfo) []models
 	exports := make([]models.Export, len(pythonExports))
 
 	for i, pExport := range pythonExports {
-		exports[i] = models.Export{
+		export := models.Export{
 			Name: pExport.Name,
 			Type: pExport.Type,
 		}
+
+		if pExport.Type == "class" {
+			export.Kind = "type"
+		} else {
+			export.Kind = pExport.Type
+		}
+
+		exports[i] = export
 	}
 
 	return exports
@@ -454,30 +509,36 @@ func (p *PythonParser) extractCallNames(calls []PythonCallInfo) []string {
 
 // buildMethodSignature creates a method signature string
 func (p *PythonParser) buildMethodSignature(method *PythonFunctionInfo) string {
+	paramStr, returnStr := p.buildPythonSignatureBody(method)
+	return fmt.Sprintf("def %s(%s) -> %s", method.Name, paramStr, returnStr)
+}
+
+// buildPythonSignatureBody creates parameter and return type strings for Python signatures
+func (p *PythonParser) buildPythonSignatureBody(functionInfo *PythonFunctionInfo) (paramStr, returnStr string) {
 	var parts []string
 
 	// Add parameters
-	for _, param := range method.Parameters {
+	for _, param := range functionInfo.Parameters {
 		parts = append(parts, fmt.Sprintf("%s: %s", param.Name, param.Type))
 	}
 
-	paramStr := strings.Join(parts, ", ")
+	paramStr = strings.Join(parts, ", ")
 
 	// Add return type - handle multiple return types
-	returnStr := "None"
-	if len(method.Returns) > 0 {
-		if len(method.Returns) == 1 {
-			returnStr = method.Returns[0].Name
+	returnStr = "None"
+	if len(functionInfo.Returns) > 0 {
+		if len(functionInfo.Returns) == 1 {
+			returnStr = functionInfo.Returns[0].Name
 		} else {
 			// Multiple return types - format as Union or Tuple depending on context
 			var returnTypes []string
-			for _, ret := range method.Returns {
+			for _, ret := range functionInfo.Returns {
 				returnTypes = append(returnTypes, ret.Name)
 			}
 
 			// If all return types are the same, just use one
-			if p.allReturnTypesSame(method.Returns) {
-				returnStr = method.Returns[0].Name
+			if p.allReturnTypesSame(functionInfo.Returns) {
+				returnStr = functionInfo.Returns[0].Name
 			} else {
 				// Format as Union for multiple different types
 				returnStr = fmt.Sprintf("Union[%s]", strings.Join(returnTypes, ", "))
@@ -485,7 +546,7 @@ func (p *PythonParser) buildMethodSignature(method *PythonFunctionInfo) string {
 		}
 	}
 
-	return fmt.Sprintf("(%s) -> %s", paramStr, returnStr)
+	return paramStr, returnStr
 }
 
 // allReturnTypesSame checks if all return types in the slice are identical
@@ -501,6 +562,12 @@ func (p *PythonParser) allReturnTypesSame(returns []PythonTypeInfo) bool {
 		}
 	}
 	return true
+}
+
+// buildFunctionSignature creates a full function signature string with def keyword
+func (p *PythonParser) buildFunctionSignature(function *PythonFunctionInfo) string {
+	paramStr, returnStr := p.buildPythonSignatureBody(function)
+	return fmt.Sprintf("def %s(%s) -> %s", function.Name, paramStr, returnStr)
 }
 
 // validatePythonSetup checks if Python is available and accessible
@@ -539,4 +606,81 @@ func (p *PythonParser) validatePythonSetupLocked() error {
 func (p *PythonParser) checkPythonExecutable(executable string) error {
 	cmd := exec.Command(executable, "--version")
 	return cmd.Run()
+}
+
+// extractCallerNames extracts caller function names from PythonCallerInfo for backward compatibility
+func (p *PythonParser) extractCallerNames(callers []PythonCallerInfo) []string {
+	names := make([]string, len(callers))
+	for i, caller := range callers {
+		names[i] = caller.FunctionName
+	}
+	return names
+}
+
+// convertPythonCalls converts Python call info to enhanced LocalCalls and LocalCallsWithMetadata
+func (p *PythonParser) convertPythonCalls(pFunc *PythonFunctionInfo, function *models.Function) {
+	// Convert call info to CallReference metadata
+	for _, call := range pFunc.Calls {
+		// Create call reference with metadata
+		callRef := models.CallReference{
+			FunctionName: call.Name,
+			File:         "", // Will be set during enrichment
+			Line:         call.Line,
+			CallType:     p.mapPythonCallType(call.Type),
+		}
+
+		// Store metadata for enrichment phase
+		function.LocalCallsWithMetadata = append(function.LocalCallsWithMetadata, callRef)
+
+		// Also populate LocalCalls for backward compatibility
+		// The enrichment system will later categorize them into local vs cross-file
+		function.LocalCalls = append(function.LocalCalls, call.Name)
+	}
+
+	// Ensure fields are never nil for JSON serialization
+	if function.LocalCallsWithMetadata == nil {
+		function.LocalCallsWithMetadata = []models.CallReference{}
+	}
+}
+
+// convertPythonCallers converts Python caller info to enhanced LocalCallers and CrossFileCallers
+func (p *PythonParser) convertPythonCallers(pFunc *PythonFunctionInfo, function *models.Function) {
+	for _, caller := range pFunc.CalledBy {
+		if caller.File == "" || caller.File == p.getCurrentFilePath() {
+			// Local caller within same file
+			function.LocalCallers = append(function.LocalCallers, caller.FunctionName)
+		} else {
+			// Cross-file caller with metadata
+			callRef := models.CallReference{
+				FunctionName: caller.FunctionName,
+				File:         caller.File,
+				Line:         caller.Line,
+				CallType:     p.mapPythonCallType(caller.CallType),
+			}
+			function.CrossFileCallers = append(function.CrossFileCallers, callRef)
+		}
+	}
+}
+
+// getCurrentFilePath returns the current file path being processed
+func (p *PythonParser) getCurrentFilePath() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.currentFilePath
+}
+
+// mapPythonCallType maps Python call types to Go model constants
+func (p *PythonParser) mapPythonCallType(pythonType string) string {
+	switch pythonType {
+	case "function":
+		return models.CallTypeFunction
+	case "method":
+		return models.CallTypeMethod
+	case "attribute":
+		return models.CallTypeMethod // Treat attribute access as method call
+	case "complex":
+		return models.CallTypeComplex
+	default:
+		return models.CallTypeFunction // Default fallback
+	}
 }

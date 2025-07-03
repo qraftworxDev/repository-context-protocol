@@ -32,8 +32,12 @@ func TestQueryEngine_ConcurrentRegexCaching(t *testing.T) {
 		wg.Add(1)
 		go func(_ int) {
 			defer wg.Done()
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
 			for j := 0; j < numIterations; j++ {
-				searchResults, err := engine.SearchByPattern(pattern)
+				searchResults, err := engine.SearchByPatternWithOptions(pattern, options)
 				if err != nil {
 					errors <- err
 					return
@@ -103,8 +107,12 @@ func TestQueryEngine_ConcurrentDifferentPatterns(t *testing.T) {
 		wg.Add(1)
 		go func(_ int, p string) {
 			defer wg.Done()
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
 			for j := 0; j < numIterations; j++ {
-				searchResults, err := engine.SearchByPattern(p)
+				searchResults, err := engine.SearchByPatternWithOptions(p, options)
 				count := 0
 				if err == nil {
 					count = len(searchResults.Entries)
@@ -171,8 +179,12 @@ func TestQueryEngine_ConcurrentRegexCacheGrowth(t *testing.T) {
 		wg.Add(1)
 		go func(_ int) {
 			defer wg.Done()
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
 			for j, pattern := range patterns {
-				_, err := engine.SearchByPattern(pattern)
+				_, err := engine.SearchByPatternWithOptions(pattern, options)
 				if err != nil {
 					errors <- err
 					return
@@ -216,17 +228,22 @@ func TestQueryEngine_ConcurrentMixedOperations(t *testing.T) {
 
 	engine := NewQueryEngine(storage)
 
+	// Enable types in search for consistent results
+	options := QueryOptions{
+		IncludeTypes: true,
+	}
+
 	operations := []func() (int, error){
 		// Regex pattern searches
 		func() (int, error) {
-			results, err := engine.SearchByPattern("/Handle.*/")
+			results, err := engine.SearchByPatternWithOptions("/Handle.*/", options)
 			if err != nil {
 				return 0, err
 			}
 			return len(results.Entries), nil
 		},
 		func() (int, error) {
-			results, err := engine.SearchByPattern("/ConcurrentFunction.*/")
+			results, err := engine.SearchByPatternWithOptions("/ConcurrentFunction.*/", options)
 			if err != nil {
 				return 0, err
 			}
@@ -234,7 +251,7 @@ func TestQueryEngine_ConcurrentMixedOperations(t *testing.T) {
 		},
 		// Glob pattern searches
 		func() (int, error) {
-			results, err := engine.SearchByPattern("Process*")
+			results, err := engine.SearchByPatternWithOptions("Process*", options)
 			if err != nil {
 				return 0, err
 			}
@@ -242,7 +259,7 @@ func TestQueryEngine_ConcurrentMixedOperations(t *testing.T) {
 		},
 		// Exact searches
 		func() (int, error) {
-			results, err := engine.SearchByPattern("HandleUserLogin")
+			results, err := engine.SearchByPatternWithOptions("HandleUserLogin", options)
 			if err != nil {
 				return 0, err
 			}
@@ -333,8 +350,12 @@ func TestQueryEngine_ConcurrentRegexCompilationRaces(t *testing.T) {
 		wg.Add(1)
 		go func(gID int) {
 			defer wg.Done()
+			// Enable types in search for consistent results
+			options := QueryOptions{
+				IncludeTypes: true,
+			}
 			start := time.Now()
-			results, err := engine.SearchByPattern(complexPattern)
+			results, err := engine.SearchByPatternWithOptions(complexPattern, options)
 			duration := time.Since(start)
 
 			count := 0

@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -102,7 +103,7 @@ func (p *GoParser) ParseFile(path string, content []byte) (*models.FileContext, 
 		switch node := n.(type) {
 		case *ast.FuncDecl:
 			// Extract all functions (not just exported ones for testing)
-			ctx.Functions = append(ctx.Functions, p.extractFunction(node))
+			ctx.Functions = append(ctx.Functions, p.extractFunction(node, ctx.Imports))
 		case *ast.TypeSpec:
 			ctx.Types = append(ctx.Types, p.extractType(node))
 		case *ast.GenDecl:
@@ -141,13 +142,21 @@ func (p *GoParser) ParseFile(path string, content []byte) (*models.FileContext, 
 	return ctx, nil
 }
 
-func (p *GoParser) extractFunction(node *ast.FuncDecl) models.Function {
+func (p *GoParser) extractFunction(node *ast.FuncDecl, imports []models.Import) models.Function {
 	fn := models.Function{
 		Name:       node.Name.Name,
 		Parameters: []models.Parameter{},
 		Returns:    []models.Type{},
-		Calls:      []string{},
-		CalledBy:   []string{},
+
+		// Deprecated fields for backward compatibility
+		Calls:    []string{},
+		CalledBy: []string{},
+
+		// Enhanced fields with CallReference metadata
+		LocalCalls:       []string{},
+		CrossFileCalls:   []models.CallReference{},
+		LocalCallers:     []string{},
+		CrossFileCallers: []models.CallReference{},
 	}
 
 	// Extract position information
@@ -160,20 +169,36 @@ func (p *GoParser) extractFunction(node *ast.FuncDecl) models.Function {
 		fn.EndLine = pos.Line
 	}
 
-	// Extract parameters
+	// Extract parameters and returns
+	fn.Parameters = p.extractFunctionParameters(node)
+	fn.Returns = p.extractFunctionReturns(node)
+
+	// Extract function calls
+	p.populateFunctionCalls(node, &fn, imports)
+
+	// Build signature
+	fn.Signature = p.buildFunctionSignature(node)
+
+	return fn
+}
+
+// extractFunctionParameters extracts parameter information from a function declaration
+func (p *GoParser) extractFunctionParameters(node *ast.FuncDecl) []models.Parameter {
+	var parameters []models.Parameter
+
 	if node.Type.Params != nil {
 		for _, field := range node.Type.Params.List {
 			paramType := p.typeToString(field.Type)
 			if len(field.Names) > 0 {
 				for _, name := range field.Names {
-					fn.Parameters = append(fn.Parameters, models.Parameter{
+					parameters = append(parameters, models.Parameter{
 						Name: name.Name,
 						Type: paramType,
 					})
 				}
 			} else {
 				// Anonymous parameter
-				fn.Parameters = append(fn.Parameters, models.Parameter{
+				parameters = append(parameters, models.Parameter{
 					Name: "",
 					Type: paramType,
 				})
@@ -181,30 +206,54 @@ func (p *GoParser) extractFunction(node *ast.FuncDecl) models.Function {
 		}
 	}
 
-	// Extract return types
+	return parameters
+}
+
+// extractFunctionReturns extracts return type information from a function declaration
+func (p *GoParser) extractFunctionReturns(node *ast.FuncDecl) []models.Type {
+	var returns []models.Type
+
 	if node.Type.Results != nil {
 		for _, field := range node.Type.Results.List {
 			returnType := p.typeToString(field.Type)
-			fn.Returns = append(fn.Returns, models.Type{
+			returns = append(returns, models.Type{
 				Name: returnType,
 				Kind: p.getTypeKind(returnType),
 			})
 		}
 	}
 
-	// Extract function calls from the body
+	return returns
+}
+
+// populateFunctionCalls extracts function calls from the body and populates call fields
+func (p *GoParser) populateFunctionCalls(node *ast.FuncDecl, fn *models.Function, imports []models.Import) {
 	if node.Body != nil {
+		// Extract calls for deprecated field (backward compatibility)
 		fn.Calls = p.extractFunctionCalls(node.Body)
+
+		// Extract calls with metadata for enhanced fields
+		callsWithMetadata := p.extractFunctionCallsWithMetadata(node.Body, imports)
+
+		// Store call metadata for enrichment phase
+		fn.LocalCallsWithMetadata = callsWithMetadata
+
+		// Populate LocalCalls (all calls initially - enrichment will categorize)
+		for _, call := range callsWithMetadata {
+			fn.LocalCalls = append(fn.LocalCalls, call.FunctionName)
+		}
 	}
-	// Ensure Calls is never nil for JSON serialization
+
+	// Ensure fields are never nil for JSON serialization
 	if fn.Calls == nil {
 		fn.Calls = []string{}
 	}
-
-	// Build signature
-	fn.Signature = p.buildFunctionSignature(node)
-
-	return fn
+	if fn.LocalCalls == nil {
+		fn.LocalCalls = []string{}
+	}
+	if fn.LocalCallsWithMetadata == nil {
+		fn.LocalCallsWithMetadata = []models.CallReference{}
+	}
 }
 
 func (p *GoParser) extractType(node *ast.TypeSpec) models.TypeDef {
@@ -682,7 +731,99 @@ func (p *GoParser) extractCallName(expr ast.Expr) string {
 	}
 }
 
-// buildCallGraph builds the CalledBy relationships between functions
+// extractFunctionCallsWithMetadata analyzes a function body to find all function calls with metadata
+func (p *GoParser) extractFunctionCallsWithMetadata(body *ast.BlockStmt, imports []models.Import) []models.CallReference {
+	var calls []models.CallReference
+	callMap := make(map[string]models.CallReference) // Deduplicate by name but keep metadata
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		if callExpr, ok := n.(*ast.CallExpr); ok {
+			callName := p.extractCallName(callExpr.Fun)
+			if callName != "" {
+				pos := p.fset.Position(callExpr.Pos())
+				callType := p.classifyCallType(callExpr, imports)
+
+				callRef := models.CallReference{
+					FunctionName: callName,
+					File:         "", // Will be set during enrichment
+					Line:         pos.Line,
+					CallType:     callType,
+				}
+
+				// Store the call (will overwrite duplicates with potentially better metadata)
+				callMap[callName] = callRef
+			}
+		}
+		return true
+	})
+
+	// Convert map to slice
+	for _, call := range callMap {
+		calls = append(calls, call)
+	}
+
+	return calls
+}
+
+// classifyCallType determines the type of call (function, method, external, etc.)
+func (p *GoParser) classifyCallType(callExpr *ast.CallExpr, imports []models.Import) string {
+	switch expr := callExpr.Fun.(type) {
+	case *ast.Ident:
+		// Simple function call: foo()
+		return models.CallTypeFunction
+	case *ast.SelectorExpr:
+		// Method call or package function: obj.Method() or pkg.Func()
+		if x, ok := expr.X.(*ast.Ident); ok {
+			// Check if it's a package call (like fmt.Println) or method call
+			if p.isPackageCall(x.Name, imports) {
+				return models.CallTypeExternal
+			}
+			return models.CallTypeMethod
+		}
+		return models.CallTypeMethod
+	case *ast.FuncLit:
+		// Anonymous function call
+		return models.CallTypeComplex
+	default:
+		return models.CallTypeComplex
+	}
+}
+
+// isPackageCall checks if the identifier represents a package name
+func (p *GoParser) isPackageCall(name string, imports []models.Import) bool {
+	// Check if the name matches any import alias
+	for _, imp := range imports {
+		if imp.Alias != "" && imp.Alias == name {
+			return true
+		}
+	}
+
+	// Check if the name matches the last segment of any import path
+	for _, imp := range imports {
+		// Skip imports with explicit aliases (already handled above)
+		if imp.Alias != "" {
+			continue
+		}
+
+		// Extract the package name from the import path
+		// For "fmt", use "fmt"
+		// For "path/filepath", use "filepath"
+		// For "github.com/pkg/errors", use "errors"
+		pkgName := imp.Path
+		if strings.Contains(pkgName, "/") {
+			parts := strings.Split(pkgName, "/")
+			pkgName = parts[len(parts)-1]
+		}
+
+		if pkgName == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// buildCallGraph builds the CalledBy relationships between functions (both deprecated and enhanced fields)
 func (p *GoParser) buildCallGraph(ctx *models.FileContext) {
 	// Create a map of function names to their indices for quick lookup
 	funcMap := make(map[string]int)
@@ -690,9 +831,22 @@ func (p *GoParser) buildCallGraph(ctx *models.FileContext) {
 		funcMap[ctx.Functions[i].Name] = i
 	}
 
-	// For each function, update the CalledBy field of functions it calls
+	// For each function, update caller relationships for functions it calls
 	for i := range ctx.Functions {
 		caller := &ctx.Functions[i]
+
+		// Process calls from LocalCalls (enhanced field) to populate LocalCallers
+		for _, calledName := range caller.LocalCalls {
+			if targetIdx, exists := funcMap[calledName]; exists {
+				// Add to deprecated CalledBy field (backward compatibility)
+				p.addToCalledBy(&ctx.Functions[targetIdx], caller.Name)
+
+				// Add to enhanced LocalCallers field
+				p.addToLocalCallers(&ctx.Functions[targetIdx], caller.Name)
+			}
+		}
+
+		// Also process deprecated Calls field for backward compatibility
 		for _, calledName := range caller.Calls {
 			// Handle simple function names and method calls
 			targetName := calledName
@@ -708,20 +862,26 @@ func (p *GoParser) buildCallGraph(ctx *models.FileContext) {
 			}
 
 			if targetIdx, exists := funcMap[targetName]; exists {
-				// Add caller to the CalledBy list if not already present
-				calledBy := ctx.Functions[targetIdx].CalledBy
-				found := false
-				for _, existing := range calledBy {
-					if existing == caller.Name {
-						found = true
-						break
-					}
-				}
-				if !found {
-					ctx.Functions[targetIdx].CalledBy = append(ctx.Functions[targetIdx].CalledBy, caller.Name)
-				}
+				// Add to deprecated CalledBy field (backward compatibility)
+				p.addToCalledBy(&ctx.Functions[targetIdx], caller.Name)
 			}
 		}
+	}
+}
+
+// addToCalledBy adds a caller to the deprecated CalledBy field if not already present
+func (p *GoParser) addToCalledBy(target *models.Function, callerName string) {
+	// Check if already exists in CalledBy using slices.Contains
+	if !slices.Contains(target.CalledBy, callerName) {
+		target.CalledBy = append(target.CalledBy, callerName)
+	}
+}
+
+// addToLocalCallers adds a caller to the enhanced LocalCallers field if not already present
+func (p *GoParser) addToLocalCallers(target *models.Function, callerName string) {
+	// Check if already exists in LocalCallers using slices.Contains
+	if !slices.Contains(target.LocalCallers, callerName) {
+		target.LocalCallers = append(target.LocalCallers, callerName)
 	}
 }
 

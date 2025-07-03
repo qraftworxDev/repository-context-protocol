@@ -196,3 +196,258 @@ func TestFunction_CrossFileCallers(t *testing.T) {
 		t.Errorf("Expected cross-file caller file 'main.go', got %s", mainCaller.File)
 	}
 }
+
+// Enhanced tests for new CallReference validation and backward compatibility
+
+func TestCallReference_IsValid(t *testing.T) {
+	tests := []struct {
+		name     string
+		cr       CallReference
+		expected bool
+	}{
+		{
+			name: "valid with all fields",
+			cr: CallReference{
+				FunctionName: "TestFunc",
+				File:         "/path/to/file.go",
+				Line:         42,
+				CallType:     CallTypeFunction,
+			},
+			expected: true,
+		},
+		{
+			name: "valid without CallType",
+			cr: CallReference{
+				FunctionName: "TestFunc",
+				File:         "/path/to/file.go",
+				Line:         42,
+			},
+			expected: true,
+		},
+		{
+			name: "valid with method CallType",
+			cr: CallReference{
+				FunctionName: "obj.Method",
+				File:         "/path/to/file.go",
+				Line:         10,
+				CallType:     CallTypeMethod,
+			},
+			expected: true,
+		},
+		{
+			name: "valid external call",
+			cr: CallReference{
+				FunctionName: "fmt.Println",
+				File:         "external",
+				Line:         5,
+				CallType:     CallTypeExternal,
+			},
+			expected: true,
+		},
+		{
+			name: "invalid - empty function name",
+			cr: CallReference{
+				FunctionName: "",
+				File:         "/path/to/file.go",
+				Line:         42,
+				CallType:     CallTypeFunction,
+			},
+			expected: false,
+		},
+		{
+			name: "invalid - empty file",
+			cr: CallReference{
+				FunctionName: "TestFunc",
+				File:         "",
+				Line:         42,
+				CallType:     CallTypeFunction,
+			},
+			expected: false,
+		},
+		{
+			name: "invalid CallType",
+			cr: CallReference{
+				FunctionName: "TestFunc",
+				File:         "/path/to/file.go",
+				Line:         42,
+				CallType:     "invalid_type",
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.cr.IsValid()
+			if result != tt.expected {
+				t.Errorf("CallReference.IsValid() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFunction_GetAllCalls_BackwardCompatibility(t *testing.T) {
+	tests := []struct {
+		name     string
+		function Function
+		expected []string
+	}{
+		{
+			name: "uses deprecated field when available",
+			function: Function{
+				Calls:      []string{"oldCall1", "oldCall2"},
+				LocalCalls: []string{"newLocal1"},
+				CrossFileCalls: []CallReference{
+					{FunctionName: "newCross1", File: "other.go"},
+				},
+			},
+			expected: []string{"oldCall1", "oldCall2"},
+		},
+		{
+			name: "builds from enhanced fields when deprecated empty",
+			function: Function{
+				Calls:      []string{},
+				LocalCalls: []string{"local1", "local2"},
+				CrossFileCalls: []CallReference{
+					{FunctionName: "cross1", File: "file1.go"},
+					{FunctionName: "cross2", File: "file2.go"},
+				},
+			},
+			expected: []string{"local1", "local2", "cross1", "cross2"},
+		},
+		{
+			name: "empty when no calls",
+			function: Function{
+				Calls:          []string{},
+				LocalCalls:     []string{},
+				CrossFileCalls: []CallReference{},
+			},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.function.GetAllCalls()
+			if len(result) != len(tt.expected) {
+				t.Errorf("GetAllCalls() length = %d, expected %d", len(result), len(tt.expected))
+				return
+			}
+			for i, call := range result {
+				if call != tt.expected[i] {
+					t.Errorf("GetAllCalls()[%d] = %s, expected %s", i, call, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFunction_GetAllCallers_BackwardCompatibility(t *testing.T) {
+	tests := []struct {
+		name     string
+		function Function
+		expected []string
+	}{
+		{
+			name: "uses deprecated field when available",
+			function: Function{
+				CalledBy:     []string{"oldCaller1", "oldCaller2"},
+				LocalCallers: []string{"newLocal1"},
+				CrossFileCallers: []CallReference{
+					{FunctionName: "newCross1", File: "other.go"},
+				},
+			},
+			expected: []string{"oldCaller1", "oldCaller2"},
+		},
+		{
+			name: "builds from enhanced fields when deprecated empty",
+			function: Function{
+				CalledBy:     []string{},
+				LocalCallers: []string{"caller1", "caller2"},
+				CrossFileCallers: []CallReference{
+					{FunctionName: "crossCaller1", File: "file1.go"},
+					{FunctionName: "crossCaller2", File: "file2.go"},
+				},
+			},
+			expected: []string{"caller1", "caller2", "crossCaller1", "crossCaller2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.function.GetAllCallers()
+			if len(result) != len(tt.expected) {
+				t.Errorf("GetAllCallers() length = %d, expected %d", len(result), len(tt.expected))
+				return
+			}
+			for i, caller := range result {
+				if caller != tt.expected[i] {
+					t.Errorf("GetAllCallers()[%d] = %s, expected %s", i, caller, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFunction_GetCallsInFile(t *testing.T) {
+	function := Function{
+		CrossFileCalls: []CallReference{
+			{FunctionName: "func1", File: "file1.go", Line: 10},
+			{FunctionName: "func2", File: "file2.go", Line: 20},
+			{FunctionName: "func3", File: "file1.go", Line: 30},
+		},
+	}
+
+	result := function.GetCallsInFile("file1.go")
+	expected := []CallReference{
+		{FunctionName: "func1", File: "file1.go", Line: 10},
+		{FunctionName: "func3", File: "file1.go", Line: 30},
+	}
+
+	if len(result) != len(expected) {
+		t.Errorf("GetCallsInFile() length = %d, expected %d", len(result), len(expected))
+		return
+	}
+
+	for i, call := range result {
+		if call.FunctionName != expected[i].FunctionName || call.File != expected[i].File {
+			t.Errorf("GetCallsInFile()[%d] = %+v, expected %+v", i, call, expected[i])
+		}
+	}
+}
+
+// Benchmark tests for performance validation
+func BenchmarkFunction_GetAllCalls(b *testing.B) {
+	function := Function{
+		LocalCalls:     make([]string, 100),
+		CrossFileCalls: make([]CallReference, 100),
+	}
+
+	// Initialize test data
+	for i := 0; i < 100; i++ {
+		function.LocalCalls[i] = "localFunc" + string(rune(i))
+		function.CrossFileCalls[i] = CallReference{
+			FunctionName: "crossFunc" + string(rune(i)),
+			File:         "file.go",
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = function.GetAllCalls()
+	}
+}
+
+func BenchmarkCallReference_IsValid(b *testing.B) {
+	cr := CallReference{
+		FunctionName: "TestFunc",
+		File:         "/path/to/file.go",
+		Line:         42,
+		CallType:     CallTypeFunction,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cr.IsValid()
+	}
+}

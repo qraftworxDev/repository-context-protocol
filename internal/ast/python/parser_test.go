@@ -3,6 +3,7 @@ package python
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,8 +104,8 @@ def process_user_data(name: str, email: str, age: int = 18) -> dict:
 		if len(formatFunc.Parameters) > 0 && formatFunc.Parameters[0].Name != "name" {
 			t.Errorf("Expected parameter name 'name', got %s", formatFunc.Parameters[0].Name)
 		}
-		if len(formatFunc.Parameters) > 0 && formatFunc.Parameters[0].Type != "string" {
-			t.Errorf("Expected parameter type 'string', got %s", formatFunc.Parameters[0].Type)
+		if len(formatFunc.Parameters) > 0 && formatFunc.Parameters[0].Type != "str" {
+			t.Errorf("Expected parameter type 'str', got %s", formatFunc.Parameters[0].Type)
 		}
 	}
 
@@ -218,8 +219,8 @@ class Profile:
 	if len(fileContext.Imports) != 1 {
 		t.Errorf("Expected 1 import, got %d", len(fileContext.Imports))
 	}
-	if len(fileContext.Imports) > 0 && fileContext.Imports[0].Path != "typing" {
-		t.Errorf("Expected import 'typing', got %s", fileContext.Imports[0].Path)
+	if len(fileContext.Imports) > 0 && fileContext.Imports[0].Path != "typing.Optional" {
+		t.Errorf("Expected import 'typing.Optional', got %s", fileContext.Imports[0].Path)
 	}
 }
 
@@ -363,8 +364,8 @@ class DataProcessor:
 		if itemsParam.Name != "items" {
 			t.Errorf("Expected parameter name 'items', got %s", itemsParam.Name)
 		}
-		// Should map List[str] to Go-compatible type
-		if itemsParam.Type != "[]interface{}" && itemsParam.Type != "List[str]" {
+		// Should keep List[str] as Python type
+		if itemsParam.Type != "List[str]" {
 			t.Logf("Parameter 'items' has type: %s", itemsParam.Type)
 		}
 	}
@@ -374,8 +375,8 @@ class DataProcessor:
 		if optionsParam.Name != "options" {
 			t.Errorf("Expected parameter name 'options', got %s", optionsParam.Name)
 		}
-		// Should handle Dict[str, bool] type
-		if optionsParam.Type != "map[string]interface{}" && optionsParam.Type != "Dict[str, bool]" {
+		// Should keep Dict[str, bool] as Python type
+		if optionsParam.Type != "Dict[str, bool]" {
 			t.Logf("Parameter 'options' has type: %s", optionsParam.Type)
 		}
 	}
@@ -534,25 +535,29 @@ def example_function():
 		t.Errorf("Expected alias 'dt' for datetime, got '%s'", imp.Alias)
 	}
 
-	// Test from imports
-	typingFound := false
-	pathlibFound := false
+	// Test from imports - should now show module.item format
+	typingImportsFound := []string{}
+	pathFound := false
 	for _, imp := range fileContext.Imports {
-		if imp.Path == "typing" {
-			typingFound = true
+		// Check for typing imports (typing.List, typing.Dict, etc.)
+		importPaths := []string{"typing.List", "typing.Dict", "typing.Optional", "typing.Union", "typing.Any"}
+		if slices.Contains(importPaths, imp.Path) {
+			typingImportsFound = append(typingImportsFound, imp.Path)
 			t.Logf("Found typing import: %+v", imp)
 		}
-		if imp.Path == "pathlib" {
-			pathlibFound = true
+		if imp.Path == "pathlib.Path" {
+			pathFound = true
 			t.Logf("Found pathlib import: %+v", imp)
 		}
 	}
 
-	if !typingFound {
-		t.Error("Expected to find 'from typing import ...'")
+	if len(typingImportsFound) == 0 {
+		t.Error("Expected to find typing imports (typing.List, typing.Dict, etc.)")
+	} else {
+		t.Logf("Found %d typing imports: %v", len(typingImportsFound), typingImportsFound)
 	}
-	if !pathlibFound {
-		t.Error("Expected to find 'from pathlib import Path'")
+	if !pathFound {
+		t.Error("Expected to find 'pathlib.Path' import")
 	}
 
 	// Test relative imports
@@ -998,7 +1003,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature := parser.buildMethodSignature(singleReturnFunc)
-	expected := "(param1: str) -> str"
+	expected := "def single_return(param1: str) -> str"
 	if signature != expected {
 		t.Errorf("Single return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
@@ -1018,7 +1023,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature = parser.buildMethodSignature(multipleReturnFunc)
-	expected = "(param1: str, param2: int) -> Union[str, int, bool]"
+	expected = "def multiple_return(param1: str, param2: int) -> Union[str, int, bool]"
 	if signature != expected {
 		t.Errorf("Multiple return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
@@ -1037,7 +1042,7 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature = parser.buildMethodSignature(identicalReturnFunc)
-	expected = "(param1: str) -> str"
+	expected = "def identical_return(param1: str) -> str"
 	if signature != expected {
 		t.Errorf("Identical return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
@@ -1050,12 +1055,313 @@ func TestPythonParser_MultipleReturnTypes(t *testing.T) {
 	}
 
 	signature = parser.buildMethodSignature(noReturnFunc)
-	expected = "() -> None"
+	expected = "def no_return() -> None"
 	if signature != expected {
 		t.Errorf("No return type signature mismatch. Expected: %s, Got: %s", expected, signature)
 	}
 
 	t.Log("Multiple return type test completed successfully")
+}
+
+// TestPythonParser_ExportsKindField validates the Kind field for different types of Python exports
+func TestPythonParser_ExportsKindField(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `#!/usr/bin/env python3
+"""Test file for verifying export Kind fields."""
+
+# Global variables
+exported_var = "hello"
+_private_var = "private"
+
+# Constants
+EXPORTED_CONST = 42
+_PRIVATE_CONST = 24
+
+class ExportedClass:
+    """An exported class."""
+    def __init__(self):
+        pass
+
+class _PrivateClass:
+    """A private class."""
+    pass
+
+def exported_function():
+    """An exported function."""
+    return "hello"
+
+def _private_function():
+    """A private function."""
+    return "private"
+`
+
+	fileContext, err := parser.ParseFile("test_exports.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Check that we have exports
+	if len(fileContext.Exports) == 0 {
+		t.Fatal("Expected to find exports")
+	}
+
+	// Create a map of export names to their Kind values for easy lookup
+	exportKinds := make(map[string]string)
+	for _, export := range fileContext.Exports {
+		exportKinds[export.Name] = export.Kind
+		t.Logf("Export: %s, Type: %s, Kind: %s", export.Name, export.Type, export.Kind)
+	}
+
+	// Verify each type of export has the correct Kind
+	expectedExports := map[string]string{
+		"exported_function": "function",
+		"ExportedClass":     "type", // Classes should be mapped to "type"
+		"exported_var":      "variable",
+		"EXPORTED_CONST":    "constant",
+	}
+
+	for name, expectedKind := range expectedExports {
+		if actualKind, exists := exportKinds[name]; exists {
+			if actualKind != expectedKind {
+				t.Errorf("Export '%s': expected Kind '%s', got '%s'", name, expectedKind, actualKind)
+			} else {
+				t.Logf("✓ Export '%s' has correct Kind: '%s'", name, actualKind)
+			}
+		} else {
+			t.Errorf("Expected export '%s' not found", name)
+		}
+	}
+
+	// Verify private symbols are not exported
+	privateSymbols := []string{"_private_var", "_PRIVATE_CONST", "_PrivateClass", "_private_function"}
+	for _, privateName := range privateSymbols {
+		if _, exists := exportKinds[privateName]; exists {
+			t.Errorf("Private symbol '%s' should not be exported", privateName)
+		}
+	}
+
+	t.Logf("Export Kind field test completed successfully with %d exports", len(fileContext.Exports))
+}
+
+// TestPythonParser_VariableLinePositions validates the line positions for Python variables and constants
+func TestPythonParser_VariableLinePositions(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `# Line 1: comment
+file_path = "test.txt"
+source_code = "print('hello')"
+MAX_RETRIES = 5
+extractor: str = "python"
+result: dict = {"status": "ok"}`
+
+	fileContext, err := parser.ParseFile("variables.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Debug: Print all variables found
+	t.Logf("Found %d variables:", len(fileContext.Variables))
+	for _, variable := range fileContext.Variables {
+		t.Logf("  Variable: %s, Type: %s, StartLine: %d, EndLine: %d",
+			variable.Name, variable.Type, variable.StartLine, variable.EndLine)
+	}
+
+	t.Logf("Found %d constants:", len(fileContext.Constants))
+	for _, constant := range fileContext.Constants {
+		t.Logf("  Constant: %s, Type: %s, StartLine: %d, EndLine: %d",
+			constant.Name, constant.Type, constant.StartLine, constant.EndLine)
+	}
+
+	// Basic checks that line numbers are not zero
+	for _, variable := range fileContext.Variables {
+		if variable.StartLine == 0 {
+			t.Errorf("Variable '%s' should have non-zero StartLine, got %d", variable.Name, variable.StartLine)
+		}
+		if variable.EndLine == 0 {
+			t.Errorf("Variable '%s' should have non-zero EndLine, got %d", variable.Name, variable.EndLine)
+		}
+		if variable.StartLine != variable.EndLine {
+			t.Errorf("Variable '%s' should have same StartLine and EndLine for single-line declaration, got StartLine=%d, EndLine=%d",
+				variable.Name, variable.StartLine, variable.EndLine)
+		}
+	}
+
+	for _, constant := range fileContext.Constants {
+		if constant.StartLine == 0 {
+			t.Errorf("Constant '%s' should have non-zero StartLine, got %d", constant.Name, constant.StartLine)
+		}
+		if constant.EndLine == 0 {
+			t.Errorf("Constant '%s' should have non-zero EndLine, got %d", constant.Name, constant.EndLine)
+		}
+		if constant.StartLine != constant.EndLine {
+			t.Errorf("Constant '%s' should have same StartLine and EndLine for single-line declaration, got StartLine=%d, EndLine=%d",
+				constant.Name, constant.StartLine, constant.EndLine)
+		}
+	}
+}
+
+// TestPythonParser_SpecificImportBugFix tests the specific bug mentioned in the issue:
+// "from typing import Dict returns just 'typing'" should now return "Dict"
+func TestPythonParser_SpecificImportBugFix(t *testing.T) {
+	parser := NewPythonParser()
+
+	// This is the exact scenario from the bug report
+	code := `#!/usr/bin/env python3
+"""Test the specific import bug fix."""
+
+from typing import Dict
+
+def example_func(data: Dict[str, int]) -> None:
+    pass
+`
+
+	fileContext, err := parser.ParseFile("import_bug_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Should have exactly 1 import
+	if len(fileContext.Imports) != 1 {
+		t.Fatalf("Expected 1 import, got %d", len(fileContext.Imports))
+	}
+
+	importItem := fileContext.Imports[0]
+
+	// The bug was that this would return "typing" instead of "typing.Dict"
+	if importItem.Path != "typing.Dict" {
+		t.Errorf("Expected import path 'typing.Dict', got '%s'", importItem.Path)
+	}
+
+	// Should have no alias for direct imports
+	if importItem.Alias != "" {
+		t.Errorf("Expected no alias for Dict import, got '%s'", importItem.Alias)
+	}
+
+	t.Logf("✅ Bug fix verified: 'from typing import Dict' correctly returns path='typing.Dict'")
+}
+
+// TestPythonParser_MultipleFromImports tests multiple imports from the same module
+func TestPythonParser_MultipleFromImports(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `#!/usr/bin/env python3
+"""Test multiple imports from same module."""
+
+from typing import Dict, List, Optional
+from collections import defaultdict, Counter
+`
+
+	fileContext, err := parser.ParseFile("multi_import_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Should have 5 imports total: Dict, List, Optional, defaultdict, Counter
+	if len(fileContext.Imports) != 5 {
+		t.Fatalf("Expected 5 imports, got %d", len(fileContext.Imports))
+	}
+
+	// Create a set of expected import paths (now in module.item format)
+	expectedPaths := map[string]bool{
+		"typing.Dict":             false,
+		"typing.List":             false,
+		"typing.Optional":         false,
+		"collections.defaultdict": false,
+		"collections.Counter":     false,
+	}
+
+	// Check that all expected imports are present
+	for _, importItem := range fileContext.Imports {
+		if _, exists := expectedPaths[importItem.Path]; exists {
+			expectedPaths[importItem.Path] = true
+			t.Logf("Found expected import: %s", importItem.Path)
+		} else {
+			t.Errorf("Unexpected import path: %s", importItem.Path)
+		}
+	}
+
+	// Verify all expected imports were found
+	for path, found := range expectedPaths {
+		if !found {
+			t.Errorf("Expected import '%s' not found", path)
+		}
+	}
+
+	t.Logf("✅ Multiple from imports test passed")
+}
+
+// TestPythonParser_ClassSignatureWithInheritance tests that class signatures include inheritance info
+func TestPythonParser_ClassSignatureWithInheritance(t *testing.T) {
+	parser := NewPythonParser()
+
+	code := `#!/usr/bin/env python3
+"""Test class signatures with inheritance."""
+
+import ast
+
+class SimpleClass:
+    """A class with no inheritance."""
+    pass
+
+class PythonASTExtractor(ast.NodeVisitor):
+    """A class that inherits from ast.NodeVisitor."""
+
+    def __init__(self):
+        super().__init__()
+
+    def extract(self):
+        return {}
+
+class MultipleInheritance(BaseClass1, BaseClass2):
+    """A class with multiple inheritance."""
+    pass
+`
+
+	fileContext, err := parser.ParseFile("signature_test.py", []byte(code))
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Should have 3 classes
+	if len(fileContext.Types) != 3 {
+		t.Fatalf("Expected 3 classes, got %d", len(fileContext.Types))
+	}
+
+	// Check SimpleClass (no inheritance)
+	simpleClass := findType(fileContext.Types, "SimpleClass")
+	if simpleClass == nil {
+		t.Fatal("Expected to find SimpleClass")
+	}
+	if len(simpleClass.Embedded) != 0 {
+		t.Errorf("SimpleClass should have no inheritance, got: %v", simpleClass.Embedded)
+	}
+
+	// Check PythonASTExtractor (single inheritance)
+	extractorClass := findType(fileContext.Types, "PythonASTExtractor")
+	if extractorClass == nil {
+		t.Fatal("Expected to find PythonASTExtractor")
+	}
+	if len(extractorClass.Embedded) != 1 {
+		t.Errorf("PythonASTExtractor should have 1 base class, got: %v", extractorClass.Embedded)
+	}
+	if len(extractorClass.Embedded) > 0 && extractorClass.Embedded[0] != "ast.NodeVisitor" {
+		t.Errorf("Expected base class 'ast.NodeVisitor', got: %s", extractorClass.Embedded[0])
+	}
+
+	// Check MultipleInheritance (multiple inheritance)
+	multipleClass := findType(fileContext.Types, "MultipleInheritance")
+	if multipleClass == nil {
+		t.Fatal("Expected to find MultipleInheritance")
+	}
+	if len(multipleClass.Embedded) != 2 {
+		t.Errorf("MultipleInheritance should have 2 base classes, got: %v", multipleClass.Embedded)
+	}
+
+	t.Logf("✅ Class inheritance test passed:")
+	t.Logf("  - SimpleClass: %d base classes", len(simpleClass.Embedded))
+	t.Logf("  - PythonASTExtractor: %d base classes (%v)", len(extractorClass.Embedded), extractorClass.Embedded)
+	t.Logf("  - MultipleInheritance: %d base classes (%v)", len(multipleClass.Embedded), multipleClass.Embedded)
 }
 
 // Helper function to find a function by name

@@ -249,63 +249,20 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Todo:
 1. precommit integration
-1. mcp server creation
-1. testing with LLM
-1. extend to support Python
-
-# Go bugs
-1. repocontext query --search "main*" --include-callers --json
-    - callers: null i.s.o. callers: []
-    - callees: [] i.s.o. omitted if empty
-1. query --entity-type function --include-callers --include-callees
-    - callers: (none)
-    - callees: populated
-1. repocontext query --entity-type function --include-types
-    - doesn't differ from "repocontext query --entity-type function"
+1. testing with LLM - IN PROGRESS
 
 # Python bugs
-1. Function signature maps to go-based types, should stick to Python
-  {
-    "name": "extract",
-    "signature": "() -\u003e map[string]interface{}",
-    "parameters": null,
-    "returns": [
-      {
-        "name": "map[string]interface{}",
-        "kind": "builtin"
-      }
-    ],
-    "start_line": 32,
-    "end_line": 66
-  }
-1. --include-callers and --include-callees don't seem to have any effect. Could be broken.
-1. "kind" is empty in exports
-  {
-    "name": "PythonASTExtractor",
-    "type": "class",
-    "kind": ""
-  }
-1. imports are incomplete
-  {
-    "path": "typing"
-  }
-  should be Dict or Any, etc. as per the file content
+1. local calls or called by should be checked
+1. what's the difference between local_calls and local_callers and cross_file_calls and cross_file_callers and called_by and calls
 
 # TODO:
+1. Files that are removed should be removed from the index too.
 1. test the rest of the functionality using depth, tokens limits, and other search functionality.
    - tokens limit works
-   -
 1. Test different outputs.
 1. Fix lookup issue - when using nested "repos" (e.g. there's a .repocontext folder at root and inside another folder) the product returns the data from the root folder's content
     likely related to the lookup initialising by first going to root, and then doing the query lookup against the .repocontext. Should recursively step up the chain of paths to find the first instance of the folder and default to root.
-1. Getting this warning at start up:
-```text
-Warning: Repository initialization failed: failed to initialize query engine: repository not initialized - .repocontext directory not found
-Server will continue with limited functionality
-{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{\n  \"path\": \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol\",\n  \"repo_context_path\": \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext\",\n  \"already_initialized\": false,\n  \"message\": \"Repository initialized successfully\",\n  \"created_directories\": [\n    \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext\",\n    \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext/chunks\"\n  ],\n  \"created_files\": [\n    \"/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/.repocontext/manifest.json\"\n  ]\n}"}]}}
-```
-    need to look into this and resolve - it's expected that the directory not exist on first run
-1. return format needs to change. The output is "prettified" with \n and white space. This should be removed, it'll waste space. Need to see if it's stored like this - fix it at storage layer if yes.
+1. Add support to extract doc strings for functions, files, and variables/contstants/etc.
 
 # MCP server testing
 ## Test tools systematically
@@ -345,3 +302,14 @@ EOF
 {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "list_functions", "arguments": {}}}
 EOF
 ```
+
+# Samples
+Samples are located in docs/samples.
+
+Specifically:
+1. [Python](docs/samples/sample-python-output.json)
+1. [Go](docs/samples/sample-go-output.json)
+
+Create a refresh of these using.
+1. `repocontext query --function "PythonASTExtractor" --json` (Python)
+1. `repocontext query --function "NewBuildCommand" --json` (Go)

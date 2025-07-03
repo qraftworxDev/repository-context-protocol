@@ -1,0 +1,423 @@
+{
+  "query": "NewBuildCommand",
+  "search_type": "name",
+  "entries": [
+    {
+      "index_entry": {
+        "name": "NewBuildCommand",
+        "type": "function",
+        "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build.go",
+        "start_line": 14,
+        "end_line": 40,
+        "chunk_id": "chunk_1010b566a7bc81a7",
+        "signature": "func NewBuildCommand() *cobra.Command"
+      },
+      "chunk_data": {
+        "id": "chunk_1010b566a7bc81a7",
+        "files": [
+          "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build.go"
+        ],
+        "file_data": [
+          {
+            "path": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build.go",
+            "language": "go",
+            "checksum": "ommitted due to security false positive",
+            "mod_time": "2025-06-13T16:05:52.849843168+01:00",
+            "functions": [
+              {
+                "name": "NewBuildCommand",
+                "signature": "func NewBuildCommand() *cobra.Command",
+                "parameters": null,
+                "returns": [
+                  {
+                    "name": "*cobra.Command",
+                    "kind": "pointer"
+                  }
+                ],
+                "start_line": 14,
+                "end_line": 40,
+                "calls": [
+                  "runBuild",
+                  "StringVarP",
+                  "cmd.Flags",
+                  "BoolVarP"
+                ],
+                "local_calls": [
+                  "runBuild"
+                ],
+                "cross_file_calls": [
+                  {
+                    "function_name": "BoolVarP",
+                    "file": "external",
+                    "line": 37,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "StringVarP",
+                    "file": "external",
+                    "line": 36,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "cmd.Flags",
+                    "file": "external",
+                    "line": 37,
+                    "call_type": "method"
+                  }
+                ],
+                "local_callers": [],
+                "cross_file_callers": [
+                  {
+                    "function_name": "TestNewBuildCommand",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 10
+                  },
+                  {
+                    "function_name": "TestBuildCommand_BuildIndex",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 94
+                  },
+                  {
+                    "function_name": "TestBuildCommand_WithCustomPath",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 153
+                  },
+                  {
+                    "function_name": "TestBuildCommand_NotInitialized",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 199
+                  },
+                  {
+                    "function_name": "TestBuildCommand_InvalidPath",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 208
+                  },
+                  {
+                    "function_name": "TestBuildCommand_EmptyDirectory",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 253
+                  },
+                  {
+                    "function_name": "TestBuildCommand_WithVerboseOutput",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 309
+                  },
+                  {
+                    "function_name": "TestBuildCommand_RebuildExistingIndex",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/build_test.go",
+                    "line": 390
+                  },
+                  {
+                    "function_name": "NewRootCommand",
+                    "file": "/Users/q/Development/Go/repository-context-protocol/repository-context-protocol/internal/cli/commands.go",
+                    "line": 43
+                  }
+                ]
+              },
+              {
+                "name": "runBuild",
+                "signature": "func runBuild(path string, verbose bool) error",
+                "parameters": [
+                  {
+                    "name": "path",
+                    "type": "string"
+                  },
+                  {
+                    "name": "verbose",
+                    "type": "bool"
+                  }
+                ],
+                "returns": [
+                  {
+                    "name": "error",
+                    "kind": "interface"
+                  }
+                ],
+                "start_line": 43,
+                "end_line": 95,
+                "calls": [
+                  "determineTargetPath",
+                  "fmt.Errorf",
+                  "fmt.Printf",
+                  "validateRepositoryInitialized",
+                  "index.NewIndexBuilder",
+                  "builder.Initialize",
+                  "\u003canonymous\u003e",
+                  "builder.Close",
+                  "fmt.Println",
+                  "builder.BuildIndex",
+                  "filepath.Join"
+                ],
+                "called_by": [
+                  "NewBuildCommand"
+                ],
+                "local_calls": [
+                  "determineTargetPath",
+                  "validateRepositoryInitialized"
+                ],
+                "cross_file_calls": [
+                  {
+                    "function_name": "fmt.Errorf",
+                    "file": "external",
+                    "line": 77,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "index.NewIndexBuilder",
+                    "file": "external",
+                    "line": 60,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "filepath.Join",
+                    "file": "external",
+                    "line": 91,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "builder.BuildIndex",
+                    "file": "external",
+                    "line": 75,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "fmt.Printf",
+                    "file": "external",
+                    "line": 91,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "builder.Initialize",
+                    "file": "external",
+                    "line": 61,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "\u003canonymous\u003e",
+                    "file": "external",
+                    "line": 64,
+                    "call_type": "complex"
+                  },
+                  {
+                    "function_name": "builder.Close",
+                    "file": "external",
+                    "line": 65,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "fmt.Println",
+                    "file": "external",
+                    "line": 71,
+                    "call_type": "external"
+                  }
+                ],
+                "local_callers": [
+                  "NewBuildCommand"
+                ],
+                "cross_file_callers": []
+              },
+              {
+                "name": "determineTargetPath",
+                "signature": "func determineTargetPath(path string) (string, error)",
+                "parameters": [
+                  {
+                    "name": "path",
+                    "type": "string"
+                  }
+                ],
+                "returns": [
+                  {
+                    "name": "string",
+                    "kind": "basic"
+                  },
+                  {
+                    "name": "error",
+                    "kind": "interface"
+                  }
+                ],
+                "start_line": 98,
+                "end_line": 130,
+                "calls": [
+                  "filepath.Abs",
+                  "fmt.Errorf",
+                  "os.Getwd",
+                  "os.Stat",
+                  "os.IsNotExist",
+                  "info.IsDir"
+                ],
+                "called_by": [
+                  "runBuild"
+                ],
+                "local_calls": [],
+                "cross_file_calls": [
+                  {
+                    "function_name": "filepath.Abs",
+                    "file": "external",
+                    "line": 104,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "fmt.Errorf",
+                    "file": "external",
+                    "line": 126,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "os.Getwd",
+                    "file": "external",
+                    "line": 110,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "os.Stat",
+                    "file": "external",
+                    "line": 117,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "os.IsNotExist",
+                    "file": "external",
+                    "line": 119,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "info.IsDir",
+                    "file": "external",
+                    "line": 125,
+                    "call_type": "method"
+                  }
+                ],
+                "local_callers": [
+                  "runBuild"
+                ],
+                "cross_file_callers": []
+              },
+              {
+                "name": "validateRepositoryInitialized",
+                "signature": "func validateRepositoryInitialized(path string) error",
+                "parameters": [
+                  {
+                    "name": "path",
+                    "type": "string"
+                  }
+                ],
+                "returns": [
+                  {
+                    "name": "error",
+                    "kind": "interface"
+                  }
+                ],
+                "start_line": 133,
+                "end_line": 159,
+                "calls": [
+                  "filepath.Join",
+                  "os.Stat",
+                  "os.IsNotExist",
+                  "fmt.Errorf",
+                  "info.IsDir"
+                ],
+                "called_by": [
+                  "runBuild"
+                ],
+                "local_calls": [],
+                "cross_file_calls": [
+                  {
+                    "function_name": "os.Stat",
+                    "file": "external",
+                    "line": 151,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "os.IsNotExist",
+                    "file": "external",
+                    "line": 152,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "fmt.Errorf",
+                    "file": "external",
+                    "line": 155,
+                    "call_type": "external"
+                  },
+                  {
+                    "function_name": "info.IsDir",
+                    "file": "external",
+                    "line": 145,
+                    "call_type": "method"
+                  },
+                  {
+                    "function_name": "filepath.Join",
+                    "file": "external",
+                    "line": 150,
+                    "call_type": "external"
+                  }
+                ],
+                "local_callers": [
+                  "runBuild"
+                ],
+                "cross_file_callers": []
+              }
+            ],
+            "types": [],
+            "variables": [
+              {
+                "name": "path",
+                "type": "string",
+                "start_line": 15,
+                "end_line": 15
+              },
+              {
+                "name": "verbose",
+                "type": "bool",
+                "start_line": 16,
+                "end_line": 16
+              },
+              {
+                "name": "targetPath",
+                "type": "string",
+                "start_line": 99,
+                "end_line": 99
+              },
+              {
+                "name": "err",
+                "type": "error",
+                "start_line": 100,
+                "end_line": 100
+              }
+            ],
+            "constants": null,
+            "imports": [
+              {
+                "path": "fmt"
+              },
+              {
+                "path": "os"
+              },
+              {
+                "path": "path/filepath"
+              },
+              {
+                "path": "repository-context-protocol/internal/index"
+              },
+              {
+                "path": "github.com/spf13/cobra"
+              }
+            ],
+            "exports": [
+              {
+                "name": "NewBuildCommand",
+                "type": "func NewBuildCommand() *cobra.Command",
+                "kind": "function"
+              }
+            ]
+          }
+        ],
+        "token_count": 151,
+        "created_at": "2025-07-03T14:04:41.817046+01:00"
+      }
+    }
+  ],
+  "token_count": 215,
+  "truncated": false,
+  "executed_at": "2025-07-03T14:06:09.084035+01:00"
+}

@@ -202,12 +202,32 @@ func (h *HybridStorage) indexTypes(fileData *models.FileContext, chunkID string)
 			StartLine: typeDef.StartLine,
 			EndLine:   typeDef.EndLine,
 			ChunkID:   chunkID,
+			Signature: h.buildTypeSignature(typeDef),
 		}
 		if err := h.sqliteIndex.InsertIndexEntry(&entry); err != nil {
 			return fmt.Errorf("failed to insert type index entry: %w", err)
 		}
 	}
 	return nil
+}
+
+// buildTypeSignature creates a signature string for a type definition
+func (h *HybridStorage) buildTypeSignature(typeDef *models.TypeDef) string {
+	if len(typeDef.Embedded) == 0 {
+		// No inheritance - just return the class name
+		return typeDef.Name
+	}
+
+	// Include inheritance information: ClassName(BaseClass1, BaseClass2)
+	signature := typeDef.Name + "("
+	for i, embedded := range typeDef.Embedded {
+		if i > 0 {
+			signature += ", "
+		}
+		signature += embedded
+	}
+	signature += ")"
+	return signature
 }
 
 // indexVariables creates index entries for variable declarations

@@ -86,25 +86,48 @@ func (ge *GlobalEnrichment) enrichFunction(function *models.Function, currentFil
 
 // categorizeCallees separates function calls into local and cross-file categories
 func (ge *GlobalEnrichment) categorizeCallees(function *models.Function, currentFile string) {
-	// Get all callees from global call graph
-	calleeRelations := ge.globalCallGraph.GetCallees(function.Name)
+	// Clear existing LocalCalls and CrossFileCalls to rebuild from metadata
+	function.LocalCalls = []string{}
+	function.CrossFileCalls = []models.CallReference{}
 
-	for _, relation := range calleeRelations {
-		calleeName := relation.Callee
+	// Process each call with metadata to categorize correctly (preferred method)
+	if len(function.LocalCallsWithMetadata) > 0 {
+		for _, callMeta := range function.LocalCallsWithMetadata {
+			calleeName := callMeta.FunctionName
 
-		// Find the file where this function is defined
-		calleeFile := ge.findFunctionFile(calleeName)
+			// Find the file where this function is defined
+			calleeFile := ge.findFunctionFile(calleeName)
 
-		// Check if this is a local call (within same file) or cross-file
-		if calleeFile == currentFile {
-			function.LocalCalls = append(function.LocalCalls, calleeName)
-		} else {
-			crossFileCall := models.CallReference{
-				FunctionName: calleeName,
-				File:         calleeFile,
-				Line:         relation.Line,
+			// Check if this is a local call (within same file) or cross-file
+			if calleeFile == currentFile {
+				function.LocalCalls = append(function.LocalCalls, calleeName)
+			} else {
+				crossFileCall := models.CallReference{
+					FunctionName: calleeName,
+					File:         calleeFile,
+					Line:         callMeta.Line, // Use actual call line number
+					CallType:     callMeta.CallType,
+				}
+				function.CrossFileCalls = append(function.CrossFileCalls, crossFileCall)
 			}
-			function.CrossFileCalls = append(function.CrossFileCalls, crossFileCall)
+		}
+	} else if len(function.Calls) > 0 {
+		// Fallback to deprecated Calls field for backward compatibility
+		for _, calleeName := range function.Calls {
+			// Find the file where this function is defined
+			calleeFile := ge.findFunctionFile(calleeName)
+
+			// Check if this is a local call (within same file) or cross-file
+			if calleeFile == currentFile {
+				function.LocalCalls = append(function.LocalCalls, calleeName)
+			} else {
+				crossFileCall := models.CallReference{
+					FunctionName: calleeName,
+					File:         calleeFile,
+					Line:         function.StartLine, // Use function start line (less accurate)
+				}
+				function.CrossFileCalls = append(function.CrossFileCalls, crossFileCall)
+			}
 		}
 	}
 }
@@ -124,7 +147,7 @@ func (ge *GlobalEnrichment) categorizeCallers(function *models.Function, current
 			crossFileCaller := models.CallReference{
 				FunctionName: callerName,
 				File:         relation.CallerFile,
-				Line:         relation.Line,
+				Line:         relation.Line, // This now has the actual call line number
 			}
 			function.CrossFileCallers = append(function.CrossFileCallers, crossFileCaller)
 		}

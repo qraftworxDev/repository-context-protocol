@@ -46,31 +46,54 @@ func (gcg *GlobalCallGraph) BuildFromFiles(fileContexts []models.FileContext) er
 		}
 	}
 
-	// Second pass: build call relationships
+	// Second pass: build call relationships using LocalCallsWithMetadata
 	for i := range fileContexts {
 		fileContext := &fileContexts[i]
 		for j := range fileContext.Functions {
 			function := &fileContext.Functions[j]
 
-			// Process each call made by this function
-			for _, callee := range function.Calls {
-				// Create call relation
+			// Process each call made by this function using metadata
+			for _, callMeta := range function.LocalCallsWithMetadata {
+				// Create call relation with actual call line number
 				relation := models.CallRelation{
 					Caller:     function.Name,
-					Callee:     callee,
+					Callee:     callMeta.FunctionName,
 					File:       fileContext.Path,
 					CallerFile: fileContext.Path,
-					Line:       function.StartLine,
+					Line:       callMeta.Line, // Use actual call line number
 				}
 
 				// Add to callers map (callee -> list of callers)
-				gcg.callersMap[callee] = append(gcg.callersMap[callee], relation)
+				gcg.callersMap[callMeta.FunctionName] = append(gcg.callersMap[callMeta.FunctionName], relation)
 
 				// Add to callees map (caller -> list of callees)
 				gcg.calleesMap[function.Name] = append(gcg.calleesMap[function.Name], relation)
 
 				// Track the callee as a function (even if it's external like fmt.Println)
-				gcg.allFunctions[callee] = true
+				gcg.allFunctions[callMeta.FunctionName] = true
+			}
+
+			// Fallback to deprecated Calls field if LocalCallsWithMetadata is empty (backward compatibility)
+			if len(function.LocalCallsWithMetadata) == 0 && len(function.Calls) > 0 {
+				for _, callee := range function.Calls {
+					// Create call relation with function start line (less accurate)
+					relation := models.CallRelation{
+						Caller:     function.Name,
+						Callee:     callee,
+						File:       fileContext.Path,
+						CallerFile: fileContext.Path,
+						Line:       function.StartLine,
+					}
+
+					// Add to callers map (callee -> list of callers)
+					gcg.callersMap[callee] = append(gcg.callersMap[callee], relation)
+
+					// Add to callees map (caller -> list of callees)
+					gcg.calleesMap[function.Name] = append(gcg.calleesMap[function.Name], relation)
+
+					// Track the callee as a function (even if it's external like fmt.Println)
+					gcg.allFunctions[callee] = true
+				}
 			}
 		}
 	}

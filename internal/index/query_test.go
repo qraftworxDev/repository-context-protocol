@@ -1,7 +1,9 @@
 package index
 
 import (
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -420,8 +422,20 @@ func TestQueryEngine_SearchInFileWithIncludeTypes(t *testing.T) {
 		}
 	}
 
-	// The IncludeTypes flag should work (this is currently not implemented but the test structure is correct)
-	// In the future, this could add additional related type information
+	// Test that IncludeTypes flag works correctly
+	if options.IncludeTypes {
+		// When IncludeTypes is true, we should find types in addition to functions/variables
+		foundType := false
+		for _, entry := range results.Entries {
+			if entry.IndexEntry.Type == "struct" || entry.IndexEntry.Type == "interface" {
+				foundType = true
+				break
+			}
+		}
+		if !foundType {
+			t.Error("Expected to find types when IncludeTypes is true")
+		}
+	}
 }
 
 func TestQueryEngine_GetCallGraphWithOptions_OnlyCallers(t *testing.T) {
@@ -731,6 +745,221 @@ func TestQueryEngine_SearchByTypeWithTokenLimit(t *testing.T) {
 	validateTokenLimits(t, engine, results, options.MaxTokens)
 }
 
+func TestQueryEngine_IncludeTypesFlag(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallGraph(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	// Test pattern search WITHOUT IncludeTypes - should not include types
+	optionsWithoutTypes := QueryOptions{
+		IncludeTypes: false,
+	}
+
+	resultWithoutTypes, err := engine.SearchByPatternWithOptions("Test*", optionsWithoutTypes)
+	if err != nil {
+		t.Fatalf("Failed to search pattern without types: %v", err)
+	}
+
+	// Count entities by type without IncludeTypes
+	functionsWithoutTypes := 0
+	typesWithoutTypes := 0
+	for _, entry := range resultWithoutTypes.Entries {
+		switch entry.IndexEntry.Type {
+		case "function":
+			functionsWithoutTypes++
+		case "struct", "interface", "type", "alias", "enum":
+			typesWithoutTypes++
+		}
+	}
+
+	// Test pattern search WITH IncludeTypes - should include types
+	optionsWithTypes := QueryOptions{
+		IncludeTypes: true,
+	}
+
+	resultWithTypes, err := engine.SearchByPatternWithOptions("Test*", optionsWithTypes)
+	if err != nil {
+		t.Fatalf("Failed to search pattern with types: %v", err)
+	}
+
+	// Count entities by type with IncludeTypes
+	functionsWithTypes := 0
+	typesWithTypes := 0
+	for _, entry := range resultWithTypes.Entries {
+		switch entry.IndexEntry.Type {
+		case "function":
+			functionsWithTypes++
+		case "struct", "interface", "type", "alias", "enum":
+			typesWithTypes++
+		}
+	}
+
+	// Verify behavior
+	if typesWithoutTypes > 0 {
+		t.Errorf("Expected no types without IncludeTypes flag, but found %d", typesWithoutTypes)
+	}
+
+	if functionsWithoutTypes != functionsWithTypes {
+		t.Errorf("Function count should be same regardless of IncludeTypes flag: without=%d, with=%d",
+			functionsWithoutTypes, functionsWithTypes)
+	}
+
+	// Should have more total entries when IncludeTypes is true (assuming there are types matching the pattern)
+	if len(resultWithTypes.Entries) <= len(resultWithoutTypes.Entries) {
+		t.Logf("Warning: Expected more entries with IncludeTypes=true, but got without=%d, with=%d",
+			len(resultWithoutTypes.Entries), len(resultWithTypes.Entries))
+		t.Logf("This might be expected if no types match the 'Test*' pattern")
+	}
+
+	// Test that types are included when IncludeTypes is true (if any exist)
+	if typesWithTypes == 0 {
+		// Check if there are any types at all that match the pattern
+		allTypeResults, _ := engine.SearchByType("struct")
+		hasMatchingTypes := false
+		for _, entry := range allTypeResults.Entries {
+			if strings.HasPrefix(entry.IndexEntry.Name, "Test") {
+				hasMatchingTypes = true
+				break
+			}
+		}
+		if hasMatchingTypes {
+			t.Error("Expected to find types when IncludeTypes is true and matching types exist")
+		}
+	}
+
+	t.Logf("Pattern search results - Without types: %d entries (%d functions, %d types)",
+		len(resultWithoutTypes.Entries), functionsWithoutTypes, typesWithoutTypes)
+	t.Logf("Pattern search results - With types: %d entries (%d functions, %d types)",
+		len(resultWithTypes.Entries), functionsWithTypes, typesWithTypes)
+}
+
+func TestQueryEngine_CallGraphJSONSerialization(t *testing.T) {
+	tempDir, storage := setupTestStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	setupTestDataWithCallerCalleeRelations(t, storage)
+
+	engine := NewQueryEngine(storage)
+
+	tests := []struct {
+		name           string
+		functionName   string
+		includeCallers bool
+		includeCallees bool
+		expectCallers  bool
+		expectCallees  bool
+	}{
+		{
+			name:           "Neither included - both omitted",
+			functionName:   "HelperFunction",
+			includeCallers: false,
+			includeCallees: false,
+			expectCallers:  false,
+			expectCallees:  false,
+		},
+		{
+			name:           "Only callers included",
+			functionName:   "HelperFunction",
+			includeCallers: true,
+			includeCallees: false,
+			expectCallers:  true,
+			expectCallees:  false,
+		},
+		{
+			name:           "Only callees included",
+			functionName:   "MainFunction",
+			includeCallers: false,
+			includeCallees: true,
+			expectCallers:  false,
+			expectCallees:  true,
+		},
+		{
+			name:           "Both included with callers only",
+			functionName:   "HelperFunction",
+			includeCallers: true,
+			includeCallees: true,
+			expectCallers:  true,
+			expectCallees:  false, // HelperFunction has no callees, so should be omitted
+		},
+		{
+			name:           "Both included with both present",
+			functionName:   "MainFunction",
+			includeCallers: true,
+			includeCallees: true,
+			expectCallers:  false, // MainFunction has no callers, so should be omitted
+			expectCallees:  true,  // MainFunction calls other functions
+		},
+		{
+			name:           "Function with no callers/callees",
+			functionName:   "IsolatedFunction",
+			includeCallers: true,
+			includeCallees: true,
+			expectCallers:  false, // Should be omitted when empty
+			expectCallees:  false, // Should be omitted when empty
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := QueryOptions{
+				IncludeCallers: tt.includeCallers,
+				IncludeCallees: tt.includeCallees,
+				MaxDepth:       2,
+			}
+
+			result, err := engine.SearchByNameWithOptions(tt.functionName, options)
+			if err != nil {
+				t.Fatalf("Failed to search for %s: %v", tt.functionName, err)
+			}
+
+			// Marshal to JSON to test serialization
+			jsonData, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				t.Fatalf("Failed to marshal result to JSON: %v", err)
+			}
+
+			jsonStr := string(jsonData)
+
+			// Check for presence/absence of callers field
+			if tt.expectCallers {
+				if !strings.Contains(jsonStr, `"callers"`) {
+					t.Errorf("Expected 'callers' field in JSON output, but it was omitted")
+				}
+				// Ensure it's not null
+				if strings.Contains(jsonStr, `"callers": null`) {
+					t.Errorf("Expected 'callers' field to be an array, but got null")
+				}
+			} else if strings.Contains(jsonStr, `"callers"`) {
+				t.Errorf("Expected 'callers' field to be omitted from JSON output, but it was present")
+			}
+
+			// Check for presence/absence of callees field
+			if tt.expectCallees {
+				if !strings.Contains(jsonStr, `"callees"`) {
+					t.Errorf("Expected 'callees' field in JSON output, but it was omitted")
+				}
+				// Ensure it's not null
+				if strings.Contains(jsonStr, `"callees": null`) {
+					t.Errorf("Expected 'callees' field to be an array, but got null")
+				}
+			} else if strings.Contains(jsonStr, `"callees"`) {
+				t.Errorf("Expected 'callees' field to be omitted from JSON output, but it was present")
+			}
+
+			// Verify that no null values appear for callers/callees
+			if strings.Contains(jsonStr, `"callers": null`) {
+				t.Error("Found null value for callers field - should be omitted or empty array")
+			}
+			if strings.Contains(jsonStr, `"callees": null`) {
+				t.Error("Found null value for callees field - should be omitted or empty array")
+			}
+		})
+	}
+}
+
 func TestQueryEngine_CallGraphMaxDepthActuallyUsed(t *testing.T) {
 	tempDir, storage := setupTestStorage(t)
 	defer os.RemoveAll(tempDir)
@@ -952,6 +1181,13 @@ func setupTestDataWithCallerCalleeRelations(t *testing.T, storage *HybridStorage
 				StartLine: 30,
 				EndLine:   35,
 				Calls:     []string{"HelperFunction"},
+			},
+			{
+				Name:      "IsolatedFunction",
+				Signature: "func IsolatedFunction()",
+				StartLine: 40,
+				EndLine:   45,
+				// IsolatedFunction has no calls and no callers
 			},
 		},
 		Types: []models.TypeDef{
