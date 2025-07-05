@@ -11,7 +11,8 @@
       "Bash(make fmt:*)",
       "Bash(make:*)",
       "Bash(rg:*)",
-      "Bash(../bin/repocontext build:*)"
+      "Bash(../bin/repocontext build:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }

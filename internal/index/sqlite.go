@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"repository-context-protocol/internal/models"
@@ -11,16 +12,34 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Prepared statement cache for better performance (Phase 4A.2.2)
+type PreparedStatementCache struct {
+	statements map[string]*sql.Stmt
+	mu         sync.RWMutex
+}
+
+// Common query constants for prepared statement caching
+const (
+	QueryByName    = "SELECT name, type, file_path, start_line, end_line, chunk_id, signature FROM index_entries WHERE name = ?"
+	QueryByType    = "SELECT name, type, file_path, start_line, end_line, chunk_id, signature FROM index_entries WHERE type = ?"
+	QueryCallsFrom = "SELECT caller, callee, file, line, caller_file FROM call_relations WHERE caller = ?"
+	QueryCallsTo   = "SELECT caller, callee, file, line, caller_file FROM call_relations WHERE callee = ?"
+)
+
 // SQLiteIndex handles SQLite database operations for fast lookups
 type SQLiteIndex struct {
-	dbPath string
-	db     *sql.DB
+	dbPath    string
+	db        *sql.DB
+	stmtCache *PreparedStatementCache
 }
 
 // NewSQLiteIndex creates a new SQLite index with the specified database path
 func NewSQLiteIndex(dbPath string) *SQLiteIndex {
 	return &SQLiteIndex{
 		dbPath: dbPath,
+		stmtCache: &PreparedStatementCache{
+			statements: make(map[string]*sql.Stmt),
+		},
 	}
 }
 
@@ -47,7 +66,17 @@ func (si *SQLiteIndex) Initialize() error {
 
 // createTables creates the necessary tables for the index
 func (si *SQLiteIndex) createTables() error {
-	// Create index_entries table
+	if err := si.createCoreTable(); err != nil {
+		return err
+	}
+	if err := si.createRelationTables(); err != nil {
+		return err
+	}
+	return si.createIndexes()
+}
+
+// createCoreTable creates the main index_entries table
+func (si *SQLiteIndex) createCoreTable() error {
 	indexEntriesSQL := `
 	CREATE TABLE IF NOT EXISTS index_entries (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,8 +93,11 @@ func (si *SQLiteIndex) createTables() error {
 	if _, err := si.db.Exec(indexEntriesSQL); err != nil {
 		return fmt.Errorf("failed to create index_entries table: %w", err)
 	}
+	return nil
+}
 
-	// Create call_relations table
+// createRelationTables creates call relations and chunks tables
+func (si *SQLiteIndex) createRelationTables() error {
 	callRelationsSQL := `
 	CREATE TABLE IF NOT EXISTS call_relations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,7 +112,6 @@ func (si *SQLiteIndex) createTables() error {
 		return fmt.Errorf("failed to create call_relations table: %w", err)
 	}
 
-	// Create chunks table
 	chunksSQL := `
 	CREATE TABLE IF NOT EXISTS chunks (
 		chunk_id TEXT PRIMARY KEY,
@@ -92,8 +123,11 @@ func (si *SQLiteIndex) createTables() error {
 	if _, err := si.db.Exec(chunksSQL); err != nil {
 		return fmt.Errorf("failed to create chunks table: %w", err)
 	}
+	return nil
+}
 
-	// Create indexes for better performance
+// createIndexes creates all database indexes for performance
+func (si *SQLiteIndex) createIndexes() error {
 	indexes := []string{
 		"CREATE INDEX IF NOT EXISTS idx_index_entries_name ON index_entries(name);",
 		"CREATE INDEX IF NOT EXISTS idx_index_entries_type ON index_entries(type);",
@@ -102,6 +136,14 @@ func (si *SQLiteIndex) createTables() error {
 		"CREATE INDEX IF NOT EXISTS idx_call_relations_caller ON call_relations(caller);",
 		"CREATE INDEX IF NOT EXISTS idx_call_relations_callee ON call_relations(callee);",
 		"CREATE INDEX IF NOT EXISTS idx_chunks_created_at ON chunks(created_at);",
+
+		// Composite indexes for common query patterns (Phase 4A.1.1)
+		"CREATE INDEX IF NOT EXISTS idx_type_name ON index_entries(type, name);",
+		"CREATE INDEX IF NOT EXISTS idx_file_type ON index_entries(file_path, type);",
+		"CREATE INDEX IF NOT EXISTS idx_name_file ON index_entries(name, file_path);",
+
+		// Covering indexes to avoid chunk loading for index-only queries
+		"CREATE INDEX IF NOT EXISTS idx_covering_basic ON index_entries(type, name, file_path, chunk_id);",
 	}
 
 	for _, indexSQL := range indexes {
@@ -109,8 +151,35 @@ func (si *SQLiteIndex) createTables() error {
 			return fmt.Errorf("failed to create index: %w", err)
 		}
 	}
-
 	return nil
+}
+
+// getOrPrepareStatement returns cached statement or prepares new one with thread safety (Phase 4A.2.2)
+func (si *SQLiteIndex) getOrPrepareStatement(queryKey, sqlQuery string) (*sql.Stmt, error) {
+	// Try to get from cache with read lock
+	si.stmtCache.mu.RLock()
+	if stmt, exists := si.stmtCache.statements[queryKey]; exists {
+		si.stmtCache.mu.RUnlock()
+		return stmt, nil
+	}
+	si.stmtCache.mu.RUnlock()
+
+	// Prepare statement with write lock
+	si.stmtCache.mu.Lock()
+	defer si.stmtCache.mu.Unlock()
+
+	// Double-check pattern
+	if stmt, exists := si.stmtCache.statements[queryKey]; exists {
+		return stmt, nil
+	}
+
+	stmt, err := si.db.Prepare(sqlQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	si.stmtCache.statements[queryKey] = stmt
+	return stmt, nil
 }
 
 // InsertIndexEntry inserts a new index entry into the database
@@ -149,12 +218,12 @@ func (si *SQLiteIndex) scanIndexEntries(rows *sql.Rows) ([]models.IndexEntry, er
 
 // QueryIndexEntries queries index entries by name
 func (si *SQLiteIndex) QueryIndexEntries(name string) ([]models.IndexEntry, error) {
-	query := `
-	SELECT name, type, file_path, start_line, end_line, chunk_id, signature
-	FROM index_entries
-	WHERE name = ?`
+	stmt, err := si.getOrPrepareStatement("QueryByName", QueryByName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
 
-	rows, err := si.db.Query(query, name)
+	rows, err := stmt.Query(name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query index entries: %w", err)
 	}
@@ -165,18 +234,64 @@ func (si *SQLiteIndex) QueryIndexEntries(name string) ([]models.IndexEntry, erro
 
 // QueryIndexEntriesByType queries index entries by type
 func (si *SQLiteIndex) QueryIndexEntriesByType(entryType string) ([]models.IndexEntry, error) {
-	query := `
-	SELECT name, type, file_path, start_line, end_line, chunk_id, signature
-	FROM index_entries
-	WHERE type = ?`
+	stmt, err := si.getOrPrepareStatement("QueryByType", QueryByType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
 
-	rows, err := si.db.Query(query, entryType)
+	rows, err := stmt.Query(entryType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query index entries by type: %w", err)
 	}
 	defer rows.Close()
 
 	return si.scanIndexEntries(rows)
+}
+
+// queryIndexEntriesByField is a helper function to eliminate code duplication (Phase 4A.1.2)
+func (si *SQLiteIndex) queryIndexEntriesByField(fieldName string, values []string, orderBy string) ([]models.IndexEntry, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	// Validate field names to prevent SQL injection
+	baseQuery := "SELECT name, type, file_path, start_line, end_line, chunk_id, signature FROM index_entries"
+	var query string
+	switch fieldName {
+	case "name":
+		query = baseQuery + " WHERE name IN (%s) ORDER BY " + orderBy
+	case EntityTypeType:
+		query = baseQuery + " WHERE type IN (%s) ORDER BY " + orderBy
+	default:
+		return nil, fmt.Errorf("invalid field name: %s", fieldName)
+	}
+
+	// Build IN clause with placeholders
+	placeholders := make([]string, len(values))
+	args := make([]interface{}, len(values))
+	for i, value := range values {
+		placeholders[i] = "?"
+		args[i] = value
+	}
+
+	finalQuery := fmt.Sprintf(query, strings.Join(placeholders, ","))
+	rows, err := si.db.Query(finalQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query index entries by %s: %w", fieldName, err)
+	}
+	defer rows.Close()
+
+	return si.scanIndexEntries(rows)
+}
+
+// QueryIndexEntriesByTypes queries index entries for multiple types in a single query (Phase 4A.1.2)
+func (si *SQLiteIndex) QueryIndexEntriesByTypes(entryTypes []string) ([]models.IndexEntry, error) {
+	return si.queryIndexEntriesByField(EntityTypeType, entryTypes, "type, name")
+}
+
+// QueryIndexEntriesByNames queries index entries for multiple names in a single query (Phase 4A.1.2)
+func (si *SQLiteIndex) QueryIndexEntriesByNames(names []string) ([]models.IndexEntry, error) {
+	return si.queryIndexEntriesByField("name", names, "name")
 }
 
 // InsertCallRelation inserts a new call relation into the database
@@ -215,12 +330,12 @@ func (si *SQLiteIndex) scanCallRelations(rows *sql.Rows) ([]models.CallRelation,
 
 // QueryCallsFrom queries all functions called by the specified function
 func (si *SQLiteIndex) QueryCallsFrom(caller string) ([]models.CallRelation, error) {
-	query := `
-	SELECT caller, callee, file, line, caller_file
-	FROM call_relations
-	WHERE caller = ?`
+	stmt, err := si.getOrPrepareStatement("QueryCallsFrom", QueryCallsFrom)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
 
-	rows, err := si.db.Query(query, caller)
+	rows, err := stmt.Query(caller)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query calls from: %w", err)
 	}
@@ -231,12 +346,12 @@ func (si *SQLiteIndex) QueryCallsFrom(caller string) ([]models.CallRelation, err
 
 // QueryCallsTo queries all functions that call the specified function
 func (si *SQLiteIndex) QueryCallsTo(callee string) ([]models.CallRelation, error) {
-	query := `
-	SELECT caller, callee, file, line, caller_file
-	FROM call_relations
-	WHERE callee = ?`
+	stmt, err := si.getOrPrepareStatement("QueryCallsTo", QueryCallsTo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
 
-	rows, err := si.db.Query(query, callee)
+	rows, err := stmt.Query(callee)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query calls to: %w", err)
 	}
@@ -312,6 +427,16 @@ func (si *SQLiteIndex) DeleteChunk(chunkID string) error {
 
 // Close closes the database connection
 func (si *SQLiteIndex) Close() error {
+	// Close prepared statements first
+	if si.stmtCache != nil {
+		si.stmtCache.mu.Lock()
+		for _, stmt := range si.stmtCache.statements {
+			_ = stmt.Close()
+		}
+		si.stmtCache.statements = make(map[string]*sql.Stmt)
+		si.stmtCache.mu.Unlock()
+	}
+
 	if si.db != nil {
 		return si.db.Close()
 	}

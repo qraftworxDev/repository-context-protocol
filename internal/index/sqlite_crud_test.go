@@ -18,9 +18,7 @@ func TestSQLiteIndex_InsertIndexEntry(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	index := &SQLiteIndex{
-		dbPath: dbPath,
-	}
+	index := NewSQLiteIndex(dbPath)
 
 	// Initialize database
 	err = index.Initialize()
@@ -67,9 +65,7 @@ func TestSQLiteIndex_QueryIndexEntries(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	index := &SQLiteIndex{
-		dbPath: dbPath,
-	}
+	index := NewSQLiteIndex(dbPath)
 
 	// Initialize database
 	err = index.Initialize()
@@ -123,9 +119,7 @@ func TestSQLiteIndex_InsertCallRelation(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	index := &SQLiteIndex{
-		dbPath: dbPath,
-	}
+	index := NewSQLiteIndex(dbPath)
 
 	// Initialize database
 	err = index.Initialize()
@@ -170,9 +164,7 @@ func TestSQLiteIndex_QueryCallRelations(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	index := &SQLiteIndex{
-		dbPath: dbPath,
-	}
+	index := NewSQLiteIndex(dbPath)
 
 	// Initialize database
 	err = index.Initialize()
@@ -226,9 +218,7 @@ func TestSQLiteIndex_RegisterChunk(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	index := &SQLiteIndex{
-		dbPath: dbPath,
-	}
+	index := NewSQLiteIndex(dbPath)
 
 	// Initialize database
 	err = index.Initialize()
@@ -273,9 +263,7 @@ func TestSQLiteIndex_DeleteChunk(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	dbPath := filepath.Join(tempDir, "test.db")
-	index := &SQLiteIndex{
-		dbPath: dbPath,
-	}
+	index := NewSQLiteIndex(dbPath)
 
 	// Initialize database
 	err = index.Initialize()
