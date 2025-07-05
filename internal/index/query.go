@@ -40,15 +40,63 @@ const (
 
 	// Call graph constants
 	CallGraphFunctionSplitParts = 2
+
+	// Cache constants (Phase 4A.1.3)
+	DefaultCacheTTL = 5 // minutes
 )
 
 // Query engine for semantic searches
 
+// Simple TTL cache for query results (Phase 4A.1.3)
+type SimpleCacheEntry struct {
+	Value     interface{}
+	ExpiresAt time.Time
+}
+
+type SimpleCache struct {
+	data sync.Map
+	ttl  time.Duration
+}
+
+func NewSimpleCache(ttl time.Duration) *SimpleCache {
+	return &SimpleCache{
+		ttl: ttl,
+	}
+}
+
+func (c *SimpleCache) Get(key string) (interface{}, bool) {
+	val, exists := c.data.Load(key)
+	if !exists {
+		return nil, false
+	}
+
+	entry := val.(*SimpleCacheEntry)
+	if time.Now().After(entry.ExpiresAt) {
+		c.data.Delete(key)
+		return nil, false
+	}
+
+	return entry.Value, true
+}
+
+func (c *SimpleCache) Set(key string, value interface{}) {
+	entry := &SimpleCacheEntry{
+		Value:     value,
+		ExpiresAt: time.Now().Add(c.ttl),
+	}
+	c.data.Store(key, entry)
+}
+
+// Object pools for frequent allocations (Phase 4A.2.1)
+// TODO: Implement object pool usage in future optimization phase
+// Currently prepared but not used to avoid premature complexity
+
 // QueryEngine provides semantic search capabilities over the indexed repository
 type QueryEngine struct {
-	storage    *HybridStorage
-	regexCache map[string]*regexp.Regexp
-	regexMutex sync.RWMutex
+	storage     *HybridStorage
+	regexCache  map[string]*regexp.Regexp
+	regexMutex  sync.RWMutex
+	resultCache *SimpleCache // Phase 4A.1.3: Simple TTL cache
 }
 
 // QueryOptions configures search behavior and result formatting
@@ -98,8 +146,9 @@ type CallGraphEntry struct {
 // NewQueryEngine creates a new query engine with the given storage
 func NewQueryEngine(storage *HybridStorage) *QueryEngine {
 	return &QueryEngine{
-		storage:    storage,
-		regexCache: make(map[string]*regexp.Regexp),
+		storage:     storage,
+		regexCache:  make(map[string]*regexp.Regexp),
+		resultCache: NewSimpleCache(DefaultCacheTTL * time.Minute), // 5-minute TTL
 	}
 }
 
@@ -110,6 +159,19 @@ func (qe *QueryEngine) SearchByName(name string) (*SearchResult, error) {
 
 // SearchByNameWithOptions searches for entities by name with additional options
 func (qe *QueryEngine) SearchByNameWithOptions(name string, options QueryOptions) (*SearchResult, error) {
+	// Create cache key (Phase 4A.1.3)
+	cacheKey := fmt.Sprintf("name:%s:callers:%t:callees:%t:types:%t:depth:%d:tokens:%d",
+		name, options.IncludeCallers, options.IncludeCallees, options.IncludeTypes, options.MaxDepth, options.MaxTokens)
+
+	// Check cache first
+	if cached, found := qe.resultCache.Get(cacheKey); found {
+		if result, ok := cached.(*SearchResult); ok {
+			// Return cached result with updated execution time
+			result.ExecutedAt = time.Now()
+			return result, nil
+		}
+	}
+
 	result := &SearchResult{
 		Query:      name,
 		SearchType: "name",
@@ -145,6 +207,9 @@ func (qe *QueryEngine) SearchByNameWithOptions(name string, options QueryOptions
 
 	// Apply token limits and estimate tokens
 	qe.applyTokenLimits(result, options.MaxTokens)
+
+	// Cache the result (Phase 4A.1.3)
+	qe.resultCache.Set(cacheKey, result)
 
 	return result, nil
 }
@@ -232,36 +297,26 @@ func (qe *QueryEngine) SearchByPatternWithOptions(pattern string, options QueryO
 		Options:    &options,
 	}
 
-	// For now, implement simple prefix matching with *
-	// In a full implementation, this could use more sophisticated pattern matching
+	// Use batch queries to eliminate N+1 pattern (Phase 4A.1.2)
 	var allEntries []SearchResultEntry
 
-	// Get all entity types and search each
-	// Search functions, variables, constants
+	// Batch query for basic entity types
 	basicEntityTypes := []string{EntityTypeFunction, EntityTypeVariable, EntityTypeConstant}
-	for _, entityType := range basicEntityTypes {
-		queryResults, err := qe.storage.QueryByType(entityType)
-		if err != nil {
-			continue // Skip errors and continue with other types
-		}
-
-		for _, qr := range queryResults {
+	basicResults, err := qe.storage.QueryByTypes(basicEntityTypes)
+	if err == nil {
+		for _, qr := range basicResults {
 			if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
 				allEntries = append(allEntries, SearchResultEntry(qr))
 			}
 		}
 	}
 
-	// Search all type kinds (struct, interface, etc.) if IncludeTypes is enabled
+	// Batch query for type kinds if IncludeTypes is enabled
 	if options.IncludeTypes {
 		typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum, EntityKindClass}
-		for _, typeKind := range typeKinds {
-			queryResults, err := qe.storage.QueryByType(typeKind)
-			if err != nil {
-				continue // Skip errors and continue with other types
-			}
-
-			for _, qr := range queryResults {
+		typeResults, err := qe.storage.QueryByTypes(typeKinds)
+		if err == nil {
+			for _, qr := range typeResults {
 				if qe.matchesPattern(qr.IndexEntry.Name, pattern) {
 					allEntries = append(allEntries, SearchResultEntry(qr))
 				}
@@ -305,7 +360,7 @@ func (qe *QueryEngine) SearchInFileWithOptions(filePath string, options QueryOpt
 		Options:    &options,
 	}
 
-	// Get all entity types and filter by file
+	// Use batch queries to eliminate N+1 pattern (Phase 4A.1.2)
 	var allEntries []SearchResultEntry
 	entityTypes := []string{EntityTypeFunction, EntityTypeVariable, EntityTypeConstant}
 
@@ -313,14 +368,10 @@ func (qe *QueryEngine) SearchInFileWithOptions(filePath string, options QueryOpt
 	// since they are stored by their specific kind, not the generic "type"
 	typeKinds := []string{EntityKindStruct, EntityKindInterface, EntityKindType, EntityKindAlias, EntityKindEnum, EntityKindClass}
 
-	// Search for functions, variables, constants
-	for _, entityType := range entityTypes {
-		queryResults, err := qe.storage.QueryByType(entityType)
-		if err != nil {
-			continue
-		}
-
-		for _, qr := range queryResults {
+	// Batch query for basic entity types
+	basicResults, err := qe.storage.QueryByTypes(entityTypes)
+	if err == nil {
+		for _, qr := range basicResults {
 			// Match file path (handle both absolute and relative paths)
 			if qr.IndexEntry.File == filePath || filepath.Base(qr.IndexEntry.File) == filepath.Base(filePath) {
 				allEntries = append(allEntries, SearchResultEntry(qr))
@@ -328,15 +379,11 @@ func (qe *QueryEngine) SearchInFileWithOptions(filePath string, options QueryOpt
 		}
 	}
 
-	// Search for all type kinds if IncludeTypes is enabled
+	// Batch query for type kinds if IncludeTypes is enabled
 	if options.IncludeTypes {
-		for _, typeKind := range typeKinds {
-			queryResults, err := qe.storage.QueryByType(typeKind)
-			if err != nil {
-				continue
-			}
-
-			for _, qr := range queryResults {
+		typeResults, err := qe.storage.QueryByTypes(typeKinds)
+		if err == nil {
+			for _, qr := range typeResults {
 				// Match file path (handle both absolute and relative paths)
 				if qr.IndexEntry.File == filePath || filepath.Base(qr.IndexEntry.File) == filepath.Base(filePath) {
 					allEntries = append(allEntries, SearchResultEntry(qr))

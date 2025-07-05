@@ -62,7 +62,7 @@ func (h *HybridStorage) Initialize() error {
 
 	// Initialize SQLite index
 	dbPath := filepath.Join(h.baseDir, "index.db")
-	h.sqliteIndex = &SQLiteIndex{dbPath: dbPath}
+	h.sqliteIndex = NewSQLiteIndex(dbPath)
 	if err := h.sqliteIndex.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize SQLite index: %w", err)
 	}
@@ -174,8 +174,8 @@ func (h *HybridStorage) indexFunctions(fileData *models.FileContext, chunkID str
 			return fmt.Errorf("failed to insert function index entry: %w", err)
 		}
 
-		// Index function calls
-		for _, call := range function.Calls {
+		// Index function calls - use GetAllCalls() to handle both deprecated and new fields
+		for _, call := range function.GetAllCalls() {
 			relation := models.CallRelation{
 				Caller:     function.Name,
 				Callee:     call,
@@ -310,6 +310,36 @@ func (h *HybridStorage) QueryByType(entryType string) ([]QueryResult, error) {
 	entries, err := h.sqliteIndex.QueryIndexEntriesByType(entryType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query index entries by type: %w", err)
+	}
+
+	return h.loadChunkDataForEntries(entries)
+}
+
+// QueryByTypes searches for entries by multiple types in a single query (Phase 4A.1.2)
+func (h *HybridStorage) QueryByTypes(entryTypes []string) ([]QueryResult, error) {
+	if h.sqliteIndex == nil || h.chunkSerializer == nil {
+		return nil, fmt.Errorf("hybrid storage not initialized")
+	}
+
+	// Query SQLite index using batch method
+	entries, err := h.sqliteIndex.QueryIndexEntriesByTypes(entryTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query index entries by types: %w", err)
+	}
+
+	return h.loadChunkDataForEntries(entries)
+}
+
+// QueryByNames searches for entries by multiple names in a single query (Phase 4A.1.2)
+func (h *HybridStorage) QueryByNames(names []string) ([]QueryResult, error) {
+	if h.sqliteIndex == nil || h.chunkSerializer == nil {
+		return nil, fmt.Errorf("hybrid storage not initialized")
+	}
+
+	// Query SQLite index using batch method
+	entries, err := h.sqliteIndex.QueryIndexEntriesByNames(names)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query index entries by names: %w", err)
 	}
 
 	return h.loadChunkDataForEntries(entries)
